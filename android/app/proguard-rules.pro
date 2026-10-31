@@ -1,0 +1,10 @@
+-keep class ru.noties.jlatexmath.** { *; }
+-keep class org.scilab.forge.** { *; }
+-dontwarn org.scilab.forge.**
+-keep class com.tom_roush.** { *; }
+-dontwarn com.tom_roush.**
+-dontwarn com.gemalto.jp2.**
+-dontwarn org.bouncycastle.**
+-dontwarn okhttp3.internal.platform.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
