@@ -24,7 +24,12 @@ object Api {
     private fun base(u: String) = u.trimEnd('/')
     private val JSON = "application/json".toMediaType()
 
-    fun transcribe(wav: File, prompt: String = ""): String {
+    fun transcribe(wav: File, prompt: String = ""): String =
+        app.xuezhang.engine.Log.api("语音识别 ${wav.length() / 1024}KB", Providers0.name(Store.settings.value.asrBase), Store.settings.value.asrModel) { transcribeRaw(wav, prompt) }
+
+    private object Providers0 { fun name(b: String) = runCatching { java.net.URI(b).host ?: b }.getOrDefault(b) }
+
+    private fun transcribeRaw(wav: File, prompt: String): String {
         val s = Store.settings.value
         if (s.asrKey.isBlank()) throw ApiException("请先在「我的」里填写语音识别 API Key")
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
@@ -71,6 +76,11 @@ object Api {
     /** 统一入口：OpenAI 兼容 chat/completions、ChatGPT 账号（Codex Responses）、Claude Messages。onDelta 不为空时流式返回累计文本。 */
     fun gen(system: String, parts: List<Part>, model: String, json: Boolean = false, temperature: Double = 0.3, onDelta: ((String) -> Unit)? = null): String {
         requireLlm()
+        val what = (if (parts.any { it.jpeg != null }) "看图" else "对话") + (if (onDelta != null) "·流式" else "")
+        return app.xuezhang.engine.Log.api(what, mode().name, model) { genRaw(system, parts, model, json, temperature, onDelta) }
+    }
+
+    private fun genRaw(system: String, parts: List<Part>, model: String, json: Boolean, temperature: Double, onDelta: ((String) -> Unit)?): String {
         return when (mode()) {
             Mode.OPENAI -> openaiChat(system, parts, model, json, temperature, onDelta)
             Mode.CHATGPT -> codex(system + if (json) "\n\n只输出一个 JSON，不要任何解释或代码块。" else "", parts, model, onDelta, null).first
@@ -122,9 +132,26 @@ object Api {
         }
     }
 
+    /** chat/completions 的回答文本：content 可能是 null、数组（多段），推理模型可能只给 reasoning_content。 */
+    fun messageText(j: JSONObject): String {
+        val m = j.getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+        val c = m.opt("content")
+        val text = when (c) {
+            is String -> c
+            is JSONArray -> (0 until c.length()).joinToString("") { i -> c.optJSONObject(i)?.optString("text").orEmpty() }
+            else -> ""
+        }
+        if (text.isNotBlank()) return text
+        val r = m.optString("reasoning_content").takeIf { it.isNotBlank() && it != "null" } ?: m.optString("reasoning").takeIf { it != "null" }.orEmpty()
+        if (r.isNotBlank()) return r
+        val refusal = m.optString("refusal").takeIf { it.isNotBlank() && it != "null" }
+        throw ApiException("模型回答为空" + (refusal?.let { "（$it）" } ?: "，finish_reason=" + j.getJSONArray("choices").getJSONObject(0).optString("finish_reason")))
+    }
+
     private fun complete(msgs: JSONArray, model: String, json: Boolean, temperature: Double): String {
         val s = Store.settings.value
-        val o = JSONObject().put("model", model).put("messages", msgs).put("temperature", temperature).put("stream", false)
+        val o = JSONObject().put("model", model).put("messages", msgs).put("stream", false)
+        if (!temperature.isNaN()) o.put("temperature", temperature)
         if (json) o.put("response_format", JSONObject().put("type", "json_object"))
         val req = Request.Builder().url(base(s.llmBase) + "/chat/completions")
             .header("Authorization", "Bearer ${s.llmKey}")
@@ -133,10 +160,11 @@ object Api {
             val t = r.body?.string().orEmpty()
             if (!r.isSuccessful) {
                 if (json && r.code == 400 && t.contains("response_format")) return complete(msgs, model, false, temperature)
+                if (r.code == 400 && t.contains("temperature") && !temperature.isNaN()) return complete(msgs, model, json, Double.NaN)
                 throw ApiException("大模型请求失败 ${r.code}：${t.take(160)}")
             }
-            return runCatching { JSONObject(t).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content") }
-                .getOrElse { throw ApiException("大模型返回格式不对") }
+            return runCatching { messageText(JSONObject(t)) }
+                .getOrElse { throw ApiException("大模型返回格式不对：${t.take(160)}") }
         }
     }
 
@@ -234,24 +262,27 @@ object Api {
     }
 
     /** 从模型回答里抠出第一个完整的 JSON 对象（容忍 ```json 包裹、前后废话）。 */
-    fun extractJsonObject(t: String): JSONObject? {
-        val clean = t.replace(Regex("```[a-zA-Z]*"), "")
-        var start = clean.indexOf('{')
-        while (start >= 0) {
-            var depth = 0; var inStr = false; var esc = false
-            for (i in start until clean.length) {
-                val ch = clean[i]
-                if (inStr) { if (esc) esc = false else if (ch == '\\') esc = true else if (ch == '"') inStr = false; continue }
-                when (ch) { '"' -> inStr = true; '{' -> depth++; '}' -> { depth--; if (depth == 0) { runCatching { return JSONObject(clean.substring(start, i + 1)) }; break } } }
-            }
-            start = clean.indexOf('{', start + 1)
-        }
-        return null
-    }
+    fun extractJsonObject(t: String): JSONObject? = app.xuezhang.engine.JsonLoose.obj(t)
 
     /** 视觉模型（「看图」模型）。 */
-    fun vision(system: String, prompt: String, jpeg: ByteArray): String =
-        gen(system, listOf(Part(jpeg = jpeg), Part(prompt)), Store.settings.value.visionModel, false, 0.1)
+    fun vision(system: String, prompt: String, jpeg: ByteArray): String {
+        val s = Store.settings.value
+        val vm = visionModelFor(mode(), s.visionModel, s.llmModel)
+        return try { gen(system, listOf(Part(jpeg = jpeg), Part(prompt)), vm, false, 0.1) }
+        catch (e: ApiException) {
+            // 「看图」模型不存在 / 不支持图片时，退回对话模型再试一次
+            if (vm != s.llmModel && Regex("\\b(400|404|422)\\b").containsMatchIn(e.message.orEmpty()))
+                gen(system, listOf(Part(jpeg = jpeg), Part(prompt)), s.llmModel, false, 0.1) else throw e
+        }
+    }
+
+    /** 「看图」模型和当前服务商对不上时（例如登录 ChatGPT 账号却还留着 SiliconFlow 的 Qwen-VL），改用对话模型。 */
+    fun visionModelFor(m: Mode, vision: String, llm: String): String = when {
+        vision.isBlank() -> llm
+        m == Mode.CHATGPT && !Regex("^(gpt|o\\d|codex)", RegexOption.IGNORE_CASE).containsMatchIn(vision) -> llm
+        (m == Mode.CLAUDE_KEY || m == Mode.CLAUDE_OAUTH) && !vision.startsWith("claude") -> llm
+        else -> vision
+    }
 
     /** 文生图（「画图」模型）：OpenAI 兼容 /images/generations；ChatGPT 账号走 Responses 的 image_generation 工具。 */
     fun images(prompt: String, n: Int = 2, size: String = "1024x576"): List<String> {
@@ -362,12 +393,54 @@ object Api {
         }
     }
 
-    val CHATGPT_MODELS = listOf("gpt-6.1-sol", "gpt-5.1", "gpt-5.1-codex", "gpt-5")
+    val CHATGPT_MODELS = listOf("gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna")
+    const val CODEX_CLIENT_VERSION = "0.98.0"
+    @Volatile private var chatgptCache: List<String>? = null
+
+    /** 和 Codex CLI 一样从上游取 ChatGPT 账号可用模型；失败时用缓存/内置列表。 */
+    fun chatgptModels(refresh: Boolean = true): List<String> {
+        if (!refresh) chatgptCache?.let { return it }
+        val got = runCatching {
+            val tok = Auth.gpt()
+            val req = Request.Builder().url("https://chatgpt.com/backend-api/codex/models?client_version=$CODEX_CLIENT_VERSION")
+                .header("Authorization", "Bearer ${tok.access}").header("chatgpt-account-id", tok.accountId)
+                .header("originator", "codex_cli_rs").header("OpenAI-Beta", "responses=experimental").build()
+            http.newCall(req).execute().use { r -> if (r.isSuccessful) parseCodexModels(r.body?.string().orEmpty()) else emptyList() }
+        }.onFailure { app.xuezhang.engine.Log.err("模型列表", it, "ChatGPT 模型列表获取失败") }.getOrDefault(emptyList())
+        val list = got.ifEmpty { chatgptCache ?: CHATGPT_MODELS }
+        if (got.isNotEmpty()) { chatgptCache = got; runCatching { java.io.File(Store.dir, "chatgpt_models.txt").writeText(got.joinToString("\n")) } }
+        else if (chatgptCache == null) runCatching { java.io.File(Store.dir, "chatgpt_models.txt").readLines().filter { it.isNotBlank() }.takeIf { it.isNotEmpty() }?.let { chatgptCache = it; return it } }
+        return list
+    }
+
+    /** 解析 codex/models：{models:[{slug|id, visibility, deprecated, hidden}]} 或 {data:[…]}；跳过隐藏/弃用项。 */
+    fun parseCodexModels(t: String): List<String> {
+        val j = runCatching { JSONObject(t) }.getOrNull() ?: return emptyList()
+        val a = j.optJSONArray("models") ?: j.optJSONArray("data") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { i ->
+            when (val v = a.opt(i)) {
+                is String -> v
+                is JSONObject -> {
+                    val hidden = v.optBoolean("hidden") || v.optBoolean("deprecated") || v.optString("visibility").let { it == "hide" || it == "hidden" || it == "none" }
+                    if (hidden) null else v.optString("slug").ifBlank { v.optString("id") }.ifBlank { v.optString("model") }
+                }
+                else -> null
+            }
+        }.filter { it.isNotBlank() }.distinct()
+    }
+
+    /** OpenAI /v1/models：对话用的 gpt-6* 排前面，过滤掉嵌入/语音/审核等非对话模型。 */
+    fun sortOpenAiChat(ids: List<String>): List<String> {
+        val bad = Regex("embedding|whisper|tts|transcribe|moderation|dall-e|davinci|babbage|realtime|audio|search|computer-use", RegexOption.IGNORE_CASE)
+        val chat = ids.filterNot { bad.containsMatchIn(it) }
+        return chat.filter { it.startsWith("gpt-6") }.sortedDescending() + chat.filterNot { it.startsWith("gpt-6") }.filterNot { it.startsWith("gpt-5") || it.startsWith("gpt-4") || it.startsWith("gpt-3") } +
+            chat.filter { it.startsWith("gpt-5") || it.startsWith("gpt-4") || it.startsWith("gpt-3") } + ids.filter { bad.containsMatchIn(it) }
+    }
     val CLAUDE_MODELS = listOf("claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5")
 
     /** GET /models，返回模型 id 列表。auth = key / chatgpt / claude。 */
     fun models(baseUrl: String, key: String, type: String? = null, auth: String = "key"): List<String> {
-        if (auth == "chatgpt") return CHATGPT_MODELS
+        if (auth == "chatgpt") return chatgptModels(true)
         if (auth == "claude") return runCatching {
             val req = Request.Builder().url("$ANTHROPIC/models?limit=100").header("Authorization", "Bearer ${Auth.cl().access}")
                 .header("anthropic-beta", "oauth-2025-04-20").header("anthropic-version", "2023-06-01").build()
@@ -380,7 +453,7 @@ object Api {
         http.newCall(rb.build()).execute().use { r ->
             val t = r.body?.string().orEmpty()
             if (!r.isSuccessful) throw ApiException("获取模型失败 ${r.code}")
-            return ids(t)
+            return ids(t).let { if (baseUrl.contains("api.openai.com")) sortOpenAiChat(it) else it }
         }
     }
     private fun ids(t: String): List<String> {

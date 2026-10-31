@@ -20,6 +20,7 @@ import app.xuezhang.data.Node
 import app.xuezhang.data.Segment
 import app.xuezhang.data.Store
 import app.xuezhang.net.Api
+import app.xuezhang.net.ApiException
 import app.xuezhang.ui.Island
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,43 @@ object Live {
     val generating = mutableStateOf(false)
     val genStep = mutableIntStateOf(0)
     val genError = mutableStateOf<String?>(null)
+    val genPct = androidx.compose.runtime.mutableFloatStateOf(0f)
+    val genDetail = mutableStateOf("")
+    val genStream = mutableStateOf("")
+    /** 本次生成选的详略（null 用设置里的默认）。 */
+    @Volatile var genDepth: Int? = null
+
+    /** 长整理稿按行切块，每块不超过 max 字。 */
+    fun chunkTranscript(t: String, max: Int): List<String> {
+        if (t.length <= max) return listOf(t)
+        val out = mutableListOf<String>(); val sb = StringBuilder()
+        t.lines().forEach { l -> if (sb.length + l.length > max && sb.isNotEmpty()) { out.add(sb.toString()); sb.clear() }; sb.append(l).append('\n') }
+        if (sb.isNotBlank()) out.add(sb.toString())
+        return out
+    }
+
+    /** 合并分段生成的笔记：sections 顺接；节点挂到第一段的根下；口诀/复习卡去重。 */
+    fun mergeNotes(parts: List<JSONObject>): JSONObject {
+        if (parts.size == 1) return parts[0]
+        val out = JSONObject().put("title", parts.firstNotNullOfOrNull { it.optString("title").takeIf { t -> t.isNotBlank() } } ?: "")
+        val secs = JSONArray(); val mn = JSONArray(); val cards = JSONArray(); val nodes = JSONArray()
+        val seenM = HashSet<String>(); val seenC = HashSet<String>()
+        parts.forEachIndexed { pi, p ->
+            p.optJSONArray("sections")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { secs.put(it) } }
+            p.optJSONArray("mnemonics")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.takeIf { seenM.add(it.optString("title")) }?.let { mn.put(it) } }
+            p.optJSONArray("cards")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.takeIf { seenC.add(it.optString("q")) }?.let { cards.put(it) } }
+            p.optJSONArray("nodes")?.let { a ->
+                val map = HashMap<Int, Int>()
+                for (i in 0 until a.length()) a.optJSONObject(i)?.let { n ->
+                    val par = n.optInt("parent", -1)
+                    if (pi > 0 && par < 0 && n.optString("label") == nodes.optJSONObject(0)?.optString("label")) { map[i] = 0; return@let }
+                    val np = if (par < 0) (if (nodes.length() == 0) -1 else 0) else map[par] ?: 0
+                    map[i] = nodes.length(); nodes.put(JSONObject(n.toString()).put("parent", np))
+                }
+            }
+        }
+        return out.put("sections", secs).put("mnemonics", mn).put("cards", cards).put("nodes", nodes)
+    }
     val currentPage = mutableIntStateOf(0)
 
     private var course: Course? = null
@@ -167,13 +205,13 @@ object Live {
             if (ctxText.isNotBlank()) append("前文（已整理）：\n$ctxText\n")
             append("\n本段语音识别原文：\n$raw")
         }
-        val o = Api.chatJson(Prompts.SEGMENT, user)
+        val o = Api.chatJson(Prompts.get("segment"), user)
         val page = o.optInt("page", 0).let { if (it > 0) it else currentPage.intValue }
         if (page > 0) currentPage.intValue = page
         val fills = o.optInt("fills", 0)
         val seg = Segment(startMs = start, page = page, raw = raw, voice = o.optString("voice", raw),
-            senior = o.optString("senior"), fillers = o.optInt("fillers"), repeats = o.optInt("repeats"),
-            exam = o.optBoolean("exam") || markNext)
+            senior = o.optString("senior").let { if (Prompts.isSkip(it)) "" else it }, fillers = o.optInt("fillers"), repeats = o.optInt("repeats"),
+            exam = o.optBoolean("exam") || markNext, offTopic = Prompts.offTopic(o) && !(o.optBoolean("exam") || markNext))
         markNext = false
         segments.add(seg); persist()
         when {
@@ -194,26 +232,45 @@ object Live {
         generate(id)
     }
 
-    fun regenerate(id: String) { scope.launch { generate(id) } }
+    fun regenerate(id: String, depth: Int? = null) { genDepth = depth; scope.launch { generate(id) } }
     suspend fun generateNow(id: String) = generate(id)
 
     private suspend fun generate(id: String) {
         val l = Store.lecture(id) ?: return
         val c = Store.course(l.courseId)
         if (l.segments.isEmpty()) { Store.upsertLecture(l.copy(status = 3)); genError.value = "这节课没有识别到内容"; return }
-        generating.value = true; genError.value = null; genStep.intValue = 0
+        generating.value = true; genError.value = null; genStep.intValue = 0; genPct.floatValue = 0.05f; genDetail.value = "整理最后几段录音"; genStream.value = ""
         Store.upsertLecture(l.copy(status = 1))
         try {
             for (s in 1..2) { delay(400); genStep.intValue = s }
             val slideIdx = c?.slides?.joinToString("\n") { "P.${it.page} ${it.title}" }?.take(3000).orEmpty()
-            val transcript = l.segments.joinToString("\n") { s ->
+            val transcript = l.segments.filterNot { it.offTopic }.joinToString("\n") { s ->
                 "[${fmt(s.startMs)}${if (s.page > 0) " P.${s.page}" else ""}${if (s.exam) " ★考点" else ""}] ${s.voice}"
             }.takeLast(24000)
             genStep.intValue = 3
-            val o = withContext(Dispatchers.IO) {
-                Api.chatJson(Prompts.NOTES, "课程：${c?.name ?: ""}\n热词：${c?.hotwords?.joinToString("、") ?: ""}\n" +
-                    (if (slideIdx.isNotBlank()) "课件页目录：\n$slideIdx\n" else "") + "\n课堂整理稿：\n$transcript")
+            val depth = genDepth ?: Store.settings.value.noteDepth
+            val chunks = chunkTranscript(transcript, if (depth == 0) 14000 else 9000)
+            val head = "课程：${c?.name ?: ""}\n热词：${c?.hotwords?.joinToString("、") ?: ""}\n" + (if (slideIdx.isNotBlank()) "课件页目录：\n$slideIdx\n" else "")
+            val expect = if (depth == 0) 2500.0 else 6000.0
+            val t0 = System.currentTimeMillis()
+            Log.ok("整理笔记", "开始 · ${if (depth == 0) "简单" else "详细"} · ${chunks.size} 段 · ${transcript.length} 字")
+            val parts = chunks.mapIndexed { i, ch ->
+                genDetail.value = if (chunks.size > 1) "提炼考点 · 第 ${i + 1}/${chunks.size} 段" else "提炼考点、公式和助记"
+                val r = withContext(Dispatchers.IO) {
+                    Api.gen(Prompts.notesFor(depth, i + 1, chunks.size), listOf(Api.Part(head + "\n课堂整理稿" + (if (chunks.size > 1) "（第 ${i + 1}/${chunks.size} 部分）" else "") + "：\n$ch")),
+                        Store.settings.value.llmModel, json = true) { acc ->
+                        val f = (acc.length / expect).coerceAtMost(0.95)
+                        genPct.floatValue = (0.3 + 0.6 * (i + f) / chunks.size).toFloat()
+                        genStream.value = "已生成 ${acc.length} 字 · ${(System.currentTimeMillis() - t0) / 1000}s" +
+                            (Regex("\"title\"\\s*:\\s*\"([^\"]{1,30})\"").findAll(acc).lastOrNull()?.let { " · 正在写「${it.groupValues[1]}」" } ?: "")
+                    }
+                }
+                genPct.floatValue = (0.3 + 0.6 * (i + 1) / chunks.size).toFloat()
+                Log.ok("整理笔记", "第 ${i + 1}/${chunks.size} 段完成 · ${r.length} 字")
+                JsonLoose.obj(r) ?: throw ApiException("模型返回的笔记 JSON 不完整：" + r.take(200))
             }
+            genDetail.value = "合并笔记、生成概念图与复习卡"
+            val o = mergeNotes(parts)
             genStep.intValue = 4
             fun arr(k: String) = o.optJSONArray(k) ?: JSONArray()
             fun <T> JSONArray.objs(f: (JSONObject) -> T) = (0 until length()).mapNotNull { runCatching { f(getJSONObject(it)) }.getOrNull() }
@@ -233,9 +290,12 @@ object Live {
                 status = 2)
             Store.upsertLecture(done)
             genStep.intValue = 5
+            genPct.floatValue = 1f; genDetail.value = "完成"
+            Log.ok("整理笔记", "完成 · ${done.sections.size} 节 · ${done.cards.size} 张卡")
             Island.show("笔记生成好了", Island.Kind.Done)
         } catch (e: Exception) {
             genError.value = e.message
+            Log.err("整理笔记", e)
             Store.lecture(id)?.let { Store.upsertLecture(it.copy(status = 3)) }
             Island.show("笔记生成失败", Island.Kind.Warn)
         } finally { generating.value = false }

@@ -53,6 +53,8 @@ sealed interface Route {
     /** target = 课程 id，或 "draft" 表示正在新建/编辑的草稿 */
     data class CoverPicker(val target: String) : Route
     data object Login : Route
+    data object Logs : Route
+    data object Prompts : Route
 }
 
 object Nav {
@@ -126,6 +128,8 @@ fun App() {
                 Route.ImportBili -> ImportBiliScreen()
                 is Route.CoverPicker -> CoverPickerScreen(r.target)
                 Route.Login -> LoginScreen()
+                Route.Logs -> LogScreen()
+                Route.Prompts -> PromptsScreen()
             }
         }
         }

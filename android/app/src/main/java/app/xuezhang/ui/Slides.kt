@@ -80,6 +80,9 @@ object SlideImages {
         if (path.isBlank() || page < 1) return null
         val key = "$path#$page@$widthPx"
         cache.get(key)?.let { return it }
+        // 磁盘缓存：原始课件页渲染一次后存 PNG，笔记里反复看不用重渲染
+        val f = File(File(app.xuezhang.data.Store.dir, "slidecache").apply { mkdirs() }, "${(path + File(path).lastModified()).hashCode()}_${page}_$widthPx.png")
+        if (f.exists()) runCatching { android.graphics.BitmapFactory.decodeFile(f.absolutePath) }.getOrNull()?.let { cache.put(key, it); return it }
         val bmp = synchronized(lock) {
             runCatching {
                 when {
@@ -89,7 +92,7 @@ object SlideImages {
                 }
             }.getOrNull()
         }
-        if (bmp != null) cache.put(key, bmp)
+        if (bmp != null) { cache.put(key, bmp); runCatching { f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } } }
         return bmp
     }
 
@@ -156,9 +159,9 @@ object SlideImages {
 object SlideViewer { val open = mutableStateOf<Triple<String, Int, Int>?>(null) } // path, page, total
 
 @Composable
-fun SlideThumb(path: String, page: Int, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+fun SlideThumb(path: String, page: Int, modifier: Modifier = Modifier, widthPx: Int = 900, onClick: (() -> Unit)? = null) {
     val img by produceState<ImageBitmap?>(null, path, page) {
-        value = withContext(Dispatchers.IO) { SlideImages.render(path, page, 900)?.asImageBitmap() }
+        value = withContext(Dispatchers.IO) { SlideImages.render(path, page, widthPx)?.asImageBitmap() }
     }
     Box(
         modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Color.White)
@@ -181,7 +184,7 @@ fun SlideStrip(c: Course?, pages: List<Int>) {
     val ps = pages.filter { total == 0 || it <= total }.take(2)
     if (ps.isEmpty()) return
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ps.forEach { p -> SlideThumb(path, p, Modifier.weight(1f)) { SlideViewer.open.value = Triple(path, p, total) } }
+        ps.forEach { p -> SlideThumb(path, p, Modifier.weight(1f), widthPx = if (ps.size == 1) 1600 else 1000) { SlideViewer.open.value = Triple(path, p, total) } }
     }
     Spacer(Modifier.padding(top = 10.dp))
 }

@@ -90,21 +90,11 @@ object Schedule {
 
     /** 宽松解析模型返回的 JSON：允许 ```json 包裹、顶层是数组或 {courses:[...]}、字段名中英文混用。 */
     fun parseTimetable(text: String): List<Entry> {
-        val t = text.replace(Regex("```[a-zA-Z]*"), "").trim()
-        val arr: JSONArray = run {
-            val a = t.indexOf('['); val b = t.lastIndexOf(']')
-            val o = t.indexOf('{')
-            if (o in 0 until (if (a < 0) Int.MAX_VALUE else a)) {
-                val ob = runCatching { JSONObject(t.substring(o, t.lastIndexOf('}') + 1)) }.getOrNull()
-                ob?.let { j -> (j.optJSONArray("courses") ?: j.optJSONArray("data") ?: j.optJSONArray("items"))?.let { return@run it } }
-            }
-            if (a < 0 || b <= a) throw IllegalArgumentException("没有找到课程列表")
-            JSONArray(t.substring(a, b + 1))
-        }
+        val arr: JSONArray = findCourseArray(JsonLoose.values(text)) ?: throw IllegalArgumentException("没有找到课程列表")
         val out = mutableListOf<Entry>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val name = (o.optString("name").ifBlank { o.optString("course") }.ifBlank { o.optString("课程") }).trim()
+            val name = (o.optString("name").ifBlank { o.optString("course") }.ifBlank { o.optString("courseName") }.ifBlank { o.optString("课程") }.ifBlank { o.optString("课程名") }).trim()
             if (name.isBlank()) continue
             val wdRaw = o.opt("weekday") ?: o.opt("day") ?: o.opt("星期")
             val wd = when (wdRaw) { is Number -> wdRaw.toInt().let { if (it == 0) 7 else it }; else -> parseWeekday(wdRaw?.toString()) }
@@ -126,6 +116,27 @@ object Schedule {
         }
         // 同名同时间去重
         return out.distinctBy { "${norm(it.name)}|${it.weekday}|${it.startSection}" }
+    }
+
+    private fun looksLikeCourse(o: JSONObject?) = o != null && listOf("name", "course", "课程", "courseName", "课程名").any { o.has(it) }
+
+    /** 在模型给出的所有 JSON 值里找课程数组：顶层数组，或任意层级下 courses/data/items/schedule/课程… 字段。 */
+    private fun findCourseArray(vals: List<Any>, depth: Int = 0): JSONArray? {
+        if (depth > 4) return null
+        for (v in vals) {
+            if (v is JSONArray && (0 until v.length()).any { looksLikeCourse(v.optJSONObject(it)) }) return v
+            if (v is JSONObject) {
+                if (looksLikeCourse(v) && (v.has("weekday") || v.has("day") || v.has("星期"))) return JSONArray().put(v)
+                val kids = v.keys().asSequence().mapNotNull { v.opt(it) as? Any }.filter { it is JSONObject || it is JSONArray }.toList()
+                findCourseArray(kids, depth + 1)?.let { return it }
+            }
+        }
+        // 嵌套数组（按星期分组的 [[...],[...]]）
+        for (v in vals) if (v is JSONArray) {
+            val flat = JSONArray(); for (i in 0 until v.length()) v.optJSONArray(i)?.let { a -> for (k in 0 until a.length()) if (looksLikeCourse(a.optJSONObject(k))) flat.put(a.get(k)) }
+            if (flat.length() > 0) return flat
+        }
+        return null
     }
 
     /** 时间 → 最接近的节次（start=true 按开始时间匹配，否则按结束时间）。 */

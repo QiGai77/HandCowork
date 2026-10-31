@@ -13,6 +13,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -110,15 +114,19 @@ fun LiveScreen() {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().glass(LocalBg.current!!, com.kyant.shapes.RoundedRectangle(18.dp), surface = Color.White.copy(alpha = 0.55f)).clip(RoundedCornerShape(18.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon("check", C.Green, 16.dp, 2.4f); Spacer(Modifier.width(8.dp))
-                    BasicText("已过滤 ${segs.sumOf { it.fillers }} 处语气词 · ${segs.sumOf { it.repeats }} 处重复", Modifier.weight(1f), style = T.Label.copy(fontSize = 13.5.sp))
-                    RichText("[f:上下文补全]", style = T.Cap)
+                    BasicText("已过滤 ${segs.sumOf { it.fillers }} 处语气词 · ${segs.sumOf { it.repeats }} 处重复", Modifier.weight(1f, fill = true), style = T.Label.copy(fontSize = 13.5.sp), maxLines = 2, softWrap = true)
+                    Spacer(Modifier.width(8.dp))
+                    // 固定宽度的小标签，不再用 RichText（它会占满整行把左边文字挤成一列）
+                    BasicText("上下文补全", Modifier.wrapContentWidth().clip(RoundedCornerShape(6.dp)).background(Color(0x14000000))
+                        .border(0.8.dp, Color(0x55000000), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = T.Cap.copy(color = Color(0xFF6B7280)), maxLines = 1, softWrap = false)
                 }
             }
             if (segs.isEmpty()) item {
                 EmptyHint(if (Live.processing.intValue > 0) "学长在听…" else "开始讲课后，这里会实时出现整理内容", "每 ${Store.settings.value.chunkSec} 秒左右整理一次")
             }
             itemsIndexed(segs, key = { _, s -> s.id }) { _, s ->
-                if (mode == 1) SeniorBubble(s) else VoiceCard(s, course?.teacher ?: "老师")
+                if (mode == 1) { if (!s.offTopic) SeniorBubble(s) } else VoiceCard(s, course?.teacher ?: "老师")
             }
             if (Live.processing.intValue > 0 && segs.isNotEmpty()) item {
                 BasicText("学长在听…", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = T.Sub)
@@ -158,6 +166,22 @@ private fun DockBtn(text: String, icon: String, bg: Color, fg: Color, modifier: 
     }
 }
 
+/** 与课程无关的片段：默认折叠成一行淡色，点开看原话。 */
+@Composable
+fun OffTopicRow(s: Segment) {
+    var open by remember(s.id) { mutableStateOf(false) }
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 3.dp).fillMaxWidth().alpha(0.5f).clickable { open = !open }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicText(Live.fmt(s.startMs), style = T.Cap.copy(fontFamily = FontFamily.Monospace))
+            Spacer(Modifier.width(8.dp))
+            BasicText("无关 · 已折叠", Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0x14000000)).padding(horizontal = 6.dp, vertical = 1.dp), style = T.Cap)
+            Spacer(Modifier.width(6.dp))
+            BasicText(if (open) "收起" else s.voice.ifBlank { s.raw }, Modifier.weight(1f), style = T.Cap, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        if (open) BasicText(s.voice.ifBlank { s.raw }, Modifier.padding(top = 4.dp), style = T.Sub)
+    }
+}
+
 @Composable
 fun SeniorBubble(s: Segment) {
     Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)) {
@@ -174,6 +198,7 @@ fun SeniorBubble(s: Segment) {
 
 @Composable
 fun VoiceCard(s: Segment, teacher: String) {
+    if (s.offTopic) { OffTopicRow(s); return }
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), radius = 20.dp, padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(Live.fmt(s.startMs), style = T.Cap.copy(fontFamily = FontFamily.Monospace))
@@ -200,7 +225,7 @@ fun GeneratingScreen(id: String) {
             BasicText("下课啦", style = T.Large.copy(fontSize = 34.sp))
             BasicText(if (l?.status == 3) "生成失败了，可以重试" else "学长正在整理这节课的笔记", style = T.Sub.copy(fontSize = 15.sp))
             Spacer(Modifier.height(30.dp))
-            val target = if (waitingChunks > 0) 0.08f else step / 5f
+            val target = if (waitingChunks > 0) 0.08f else if (step >= 3) Live.genPct.floatValue.coerceAtLeast(0.3f) else step / 10f + 0.05f
             val p by animateFloatAsState(target, spring(0.8f, 60f), label = "p")
             Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
@@ -210,7 +235,24 @@ fun GeneratingScreen(id: String) {
                 }
                 BasicText("${(p * 100).toInt()}%", style = T.Title)
             }
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(14.dp))
+            // 实时步骤：当前在做什么 + 流式进度（字数、耗时、正在写的小节）
+            Column(Modifier.padding(horizontal = 28.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                BasicText(if (waitingChunks > 0) "整理最后 $waitingChunks 段录音…" else Live.genDetail.value.ifBlank { "准备中" }, style = T.Label.copy(color = C.Blue))
+                Spacer(Modifier.height(8.dp))
+                Box(Modifier.fillMaxWidth().height(6.dp).clip(Capsule()).background(Color(0x12000000))) {
+                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).fillMaxHeight().clip(Capsule()).background(C.Blue))
+                }
+                if (Live.genStream.value.isNotBlank() && Live.generating.value) BasicText(Live.genStream.value, Modifier.padding(top = 6.dp), style = T.Cap, maxLines = 1)
+                if (l?.status == 3 || !Live.generating.value) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("简单" to 0, "详细" to 1).forEach { (n, d) ->
+                        val on = (Live.genDepth ?: Store.settings.value.noteDepth) == d
+                        BasicText(n, Modifier.clip(Capsule()).background(if (on) C.Blue else Color(0x10000000)).clickable { Live.genDepth = d; Store.updateSettings(Store.settings.value.copy(noteDepth = d)) }
+                            .padding(horizontal = 14.dp, vertical = 5.dp), style = T.Btn.copy(fontSize = 13.sp, color = if (on) Color.White else C.Ink))
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
             val segs = l?.segments ?: emptyList()
             val steps = listOf(
                 Triple("整理最后几段录音", if (waitingChunks > 0) "还剩 $waitingChunks 段" else "完成", if (waitingChunks > 0) 1 else 2),
@@ -240,7 +282,7 @@ fun GeneratingScreen(id: String) {
     }, overlay = { b ->
         Row(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (l?.status == 3) GlassPill(b, "重新生成", { Live.regenerate(id) }, Modifier.weight(1f), tint = C.Blue.copy(alpha = 0.85f), color = Color.White)
+            if (l?.status == 3) GlassPill(b, "重新生成", { Live.regenerate(id, Live.genDepth) }, Modifier.weight(1f), tint = C.Blue.copy(alpha = 0.85f), color = Color.White)
             GlassPill(b, if (l?.status == 2) "查看笔记" else "先看课堂实录", { Nav.replace(Route.Note(id)) }, Modifier.weight(1f), color = C.Blue)
         }
     })

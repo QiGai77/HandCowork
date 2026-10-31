@@ -21,10 +21,17 @@ object Prompts {
  "repeats": 合并的重复次数(整数),
  "fills": 用 [f:] 补全的处数(整数),
  "page": 最可能对应的 PPT 页码(整数，无法判断填 0),
- "exam": 老师是否明确提到考试、必考、重点(true/false)
+ "exam": 老师是否明确提到考试、必考、重点(true/false),
+ "relevant": 这段是否与课程内容有关(true/false)
 }
 两种模式都要按语义加标注。""" + MARKUP + """
-如果这段只是闲聊、点名或与课程无关，voice 照常整理，senior 写一句简短概括。只输出 JSON。"""
+如果这段与课程内容无关（闲聊、玩笑、打游戏/刷视频的声音如「怎么砍不死他呀」、点名、纪律管理、设备调试、纯语气词）：
+relevant 填 false，senior 必须填 "SKIP"（不要转述、不要概括），voice 照常整理。只要有一点课程内容，relevant 就填 true。只输出 JSON。"""
+
+    /** 学长模式跳过标记。 */
+    fun isSkip(s: String): Boolean = s.trim().trim('"', '「', '」', '。', '.').let { it.equals("SKIP", true) || it == "跳过" || it == "无关" || it == "[无关]" }
+    fun offTopic(o: org.json.JSONObject): Boolean = isSkip(o.optString("senior")) ||
+        o.opt("relevant").let { it == false || it?.toString()?.lowercase() == "false" }
 
     const val NOTES = """你是「课堂学长」，要把一整节课的整理稿做成「图文讲解」复习笔记：每一节都对应课件的某一页或几页。输出 JSON：
 {
@@ -49,6 +56,39 @@ sections 3~8 节，按讲课顺序；nodes 第一个是本节课的根主题，�
   mag/angle 是表达式（角度单位：度，可引用 param.name），from 表示起点接在第几个向量的末端，sum 表示前面几个向量之和。
 """ + MARKUP + """
 只输出 JSON。"""
+
+    /** 笔记详略与完整性要求，拼在 NOTES 后面。 */
+    fun notesFor(depth: Int, part: Int = 1, total: Int = 1): String = get("notes$depth", NOTES + "\n\n" + (if (depth == 0) NOTES_SIMPLE else NOTES_DETAIL)) +
+        COVERAGE + if (total > 1) "\n\n这是整节课的第 $part/$total 部分（按时间顺序切分）。只整理这一部分的内容，sections 覆盖本部分全部内容；" +
+            (if (part > 1) "title 可留空，nodes 不要再写根主题（第一个节点 parent 也填 -1，会被挂到总根下）；" else "") + "mnemonics 与 cards 只出本部分的。" else ""
+
+    const val NOTES_SIMPLE = """详略：简单。每节 body 80~200 字，只保留定义、核心公式、考点和结论，不展开推导；交互组件最多 2 个。"""
+    const val NOTES_DETAIL = """详略：详细。每节 body 250~700 字：讲清定义、来龙去脉、完整推导步骤、例题思路、老师的原话强调和易错点；sections 可多到 12 节；交互组件最多 4 个。"""
+    const val COVERAGE = """
+
+完整性要求（必须遵守）：
+- 按顺序覆盖整理稿里的每一个知识点、每一页课件（P.n）、每一段讲解，不得跳过、合并丢失或只挑重点写；课件页目录里出现过、整理稿讲到过的页都要落到某个 section 的 pages 里。
+- 老师举的例子、补充说明、提醒、★考点 都要写进对应小节。
+- 与课程无关的闲聊不要写。
+- 交互组件格式必须完全按上面的 JSON 字段写，代码块单独成行，例如：
+```ui
+{"type":"quiz","q":"空载试验主要测得的是？","options":["铁耗","铜耗"],"answer":0,"explain":"空载电流很小，铜耗可忽略"}
+```
+  不支持的组件类型不要写；LaTeX 公式里的反斜杠在 JSON 字符串中要写成双反斜杠（\\frac）。"""
+
+    /** 设置里可预览/修改的系统提示词。 */
+    val catalog: List<Pair<String, String>> get() = listOf(
+        "segment" to "实时整理（转写纠错 · 原声/学长）", "notes0" to "整理笔记 · 简单", "notes1" to "整理笔记 · 详细",
+        "timetable" to "识别课程表（看图）", "slides" to "解析课件", "ask" to "笔记问答", "mindmap" to "概念图（画图）")
+    fun default(key: String): String = when (key) {
+        "segment" -> SEGMENT; "notes0" -> NOTES + "\n\n" + NOTES_SIMPLE; "notes1" -> NOTES + "\n\n" + NOTES_DETAIL
+        "timetable" -> TIMETABLE; "slides" -> SLIDES; "ask" -> ASK; "mindmap" -> MINDMAP; else -> ""
+    }
+    fun get(key: String, def: String = default(key)): String =
+        app.xuezhang.data.Store.settings.value.promptOverrides[key]?.takeIf { it.isNotBlank() } ?: def
+
+    const val MINDMAP = """画一张干净、专业的中文思维导图（mind map）信息图：白色背景，中心是主题，向外分支，圆角节点，层级用颜色区分，线条清晰，
+所有文字必须是给出的中文标签，字体清晰可读、不要错别字，不要出现英文或多余文字，不要插画人物。结构如下："""
 
     const val TIMETABLE = """你会看到一张大学课程表的截图或照片（可能来自教务系统、手机 App 或纸质课表）。
 把每一门课的每一次上课都列出来，严格只输出一个 JSON 对象，不要任何解释、不要代码块：

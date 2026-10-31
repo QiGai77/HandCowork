@@ -47,6 +47,7 @@ data class Segment(
     val repeats: Int = 0,
     val exam: Boolean = false,
     val pending: Boolean = false,
+    val offTopic: Boolean = false, // 与课程无关的闲聊：学长模式跳过，原声模式淡化折叠
 )
 
 data class Mnemonic(val title: String, val body: String)
@@ -93,6 +94,8 @@ data class Settings(
     val davUser: String = "",
     val davPass: String = "",
     val lastSync: Long = 0,
+    val noteDepth: Int = 1,             // 笔记详略：0 简单 / 1 详细
+    val promptOverrides: Map<String, String> = emptyMap(), // 自定义系统提示词（键见 Prompts.catalog）
 )
 
 object Store {
@@ -103,6 +106,7 @@ object Store {
 
     fun init(ctx: Context) {
         dir = File(ctx.filesDir, "data").apply { mkdirs() }
+        app.xuezhang.engine.Log.init(dir)
         courses.clear(); lectures.clear()
         load()
         if (courses.isEmpty()) seed()
@@ -152,9 +156,9 @@ object Store {
         optString("weeks"), optString("cover"), optString("sp"), optString("src"))
 
     private fun Segment.j() = JSONObject().put("id", id).put("s", startMs).put("p", page).put("r", raw).put("v", voice)
-        .put("x", senior).put("f", fillers).put("rp", repeats).put("e", exam)
+        .put("x", senior).put("f", fillers).put("rp", repeats).put("e", exam).put("ot", offTopic)
     private fun JSONObject.seg() = Segment(optString("id"), optLong("s"), optInt("p"), optString("r"), optString("v"),
-        optString("x"), optInt("f"), optInt("rp"), optBoolean("e"))
+        optString("x"), optInt("f"), optInt("rp"), optBoolean("e"), offTopic = optBoolean("ot"))
 
     private fun Lecture.j() = JSONObject().put("id", id).put("c", courseId).put("t", title).put("d", date).put("du", durationMs)
         .put("segs", JSONArray().also { a -> segments.forEach { a.put(it.j()) } }).put("n", notes)
@@ -180,13 +184,15 @@ object Store {
         .put("lk", llmKey).put("lm", llmModel).put("dm", defaultMode).put("cs", chunkSec).put("cf", confirmFill).put("lx", latex)
         .put("vm", visionModel).put("im", imageModel).put("pv", provider).put("sh", splashHidden).put("acc", account)
         .put("tt", testTarget).put("demo", demoSeeded).put("la", llmAuth).put("su", syncUri).put("du", davUrl).put("dus", davUser)
-        .put("dp", davPass).put("ls", lastSync)
+        .put("dp", davPass).put("ls", lastSync).put("nd", noteDepth)
+        .put("po", JSONObject().also { o -> promptOverrides.forEach { (k, v) -> o.put(k, v) } })
     private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
         optString("vm", d.visionModel).ifBlank { d.visionModel }, optString("im", d.imageModel).ifBlank { d.imageModel },
         optString("pv", d.provider), optString("sh"), optString("acc"), optInt("tt"), optInt("demo"),
-        optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls")) }
+        optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls"), optInt("nd", 1),
+        optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap()) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())
@@ -218,7 +224,9 @@ object Store {
             val o = JSONObject(f.readText())
             o.optJSONArray("courses")?.let { a -> for (i in 0 until a.length()) courses.add(a.getJSONObject(i).course()) }
             o.optJSONArray("lectures")?.let { a -> for (i in 0 until a.length()) lectures.add(a.getJSONObject(i).lec()) }
-            o.optJSONObject("settings")?.let { settings.value = it.settings() }
+            o.optJSONObject("settings")?.let { settings.value = it.settings().let { st ->
+                // v0.0.6：ChatGPT 账号不再提供 gpt-5.x，迁移到当前默认模型
+                if (st.llmAuth == "chatgpt" && st.llmModel.startsWith("gpt-5")) st.copy(llmModel = "gpt-6.1-sol", visionModel = if (st.visionModel.startsWith("gpt-5")) "gpt-6.1-sol" else st.visionModel) else st } }
         }
     }
 

@@ -158,15 +158,17 @@ fun ImportTimetableScreen() {
         busy = true
         scope.launch {
             try {
-                val text = withContext(Dispatchers.IO) { Api.vision(Prompts.TIMETABLE, "请识别这张课程表，严格按要求只输出 JSON。", scaleDown(b, 1800).jpeg(88)) }
-                val entries = runCatching { Schedule.parseTimetable(text) }.getOrElse { throw IllegalStateException("「看图」模型（${Store.settings.value.visionModel}）的回答不是课程列表 JSON，可以重试或在「我的 › 大模型 › 看图」换一个支持图片的模型。\n模型回答：${text.take(80)}") }
-                if (entries.isEmpty()) throw IllegalStateException("没在图里找到课程，换一张更清晰的截图试试")
+                val text = withContext(Dispatchers.IO) { Api.vision(Prompts.get("timetable"), "请识别这张课程表，严格按要求只输出 JSON。", scaleDown(b, 2048).jpeg(85)) }
+                val vm = Api.visionModelFor(Api.mode(), Store.settings.value.visionModel, Store.settings.value.llmModel)
+                val entries = runCatching { Schedule.parseTimetable(text) }.getOrElse { throw IllegalStateException("「看图」模型（$vm）的回答里没有课程列表 JSON。\n模型回答：" + text.trim().ifBlank { "（空）" }.take(300)) }
+                if (entries.isEmpty()) throw IllegalStateException("模型回答里的课程都缺少课程名。\n模型回答：" + text.trim().take(300))
+                app.xuezhang.engine.Log.ok("导入课表", "识别 ${entries.size} 条 · $vm")
                 groups = Schedule.group(entries, Store.courses)
                 picked.addAll(groups.filter { !it.exists }.map { it.name })
-            } catch (e: Exception) { err = e.message ?: "识别失败" } finally { busy = false }
+            } catch (e: Exception) { err = (e.message ?: e.javaClass.simpleName); app.xuezhang.engine.Log.err("导入课表", e) } finally { busy = false }
         }
     }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { u -> decodeScaled(ctx, u, 2000)?.let { recognize(it) } } }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { u -> decodeScaled(ctx, u, 2400)?.let { recognize(it) } } }
     val shoot = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         if (ok) BitmapFactory.decodeFile(camFile.absolutePath)?.let { recognize(scaleDown(it, 2000)) }
     }

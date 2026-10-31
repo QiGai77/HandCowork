@@ -223,6 +223,10 @@ fun SettingsTab() {
                 Row2("默认模式", "", trailing = {
                     LiquidSegmented(items = listOf("原声", "学长"), selected = s.defaultMode, onSelect = { set(Store.settings.value.copy(defaultMode = it)) }, modifier = Modifier.width(132.dp), height = 36.dp)
                 }); Divider(18.dp)
+                Row2("笔记详略", "", trailing = {
+                    LiquidSegmented(items = listOf("简单", "详细"), selected = s.noteDepth, onSelect = { set(Store.settings.value.copy(noteDepth = it)) }, modifier = Modifier.width(132.dp), height = 36.dp)
+                }); Divider(18.dp)
+                Row2("模型提示词", "预览 / 修改", onClick = { Nav.push(Route.Prompts) }); Divider(18.dp)
                 Row2("上下文补全（需确认）", "", trailing = { Toggle(s.confirmFill) { set(Store.settings.value.copy(confirmFill = it)) } }); Divider(18.dp)
                 Row2("分段时长", "", trailing = {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -241,6 +245,7 @@ fun SettingsTab() {
                 Divider(18.dp)
                 Row2("数据位置", "仅本机 · ${lectures.size} 节笔记")
                 Divider(18.dp)
+                Row2("日志", "${app.xuezhang.engine.Log.all().count { !it.ok }} 条错误", onClick = { Nav.push(Route.Logs) }); Divider(18.dp)
                 Row2("再看一次更新公告", "", onClick = { Splash.visible.value = true })
                 if (s.account.isNotBlank()) {
                     Divider(18.dp)
@@ -388,7 +393,7 @@ fun ModelSheetContent(kind: Int) {
                 selected = if (auth == "key") 0 else 1,
                 onSelect = { i ->
                     auth = if (i == 0) "key" else prov.oauth
-                    if (auth == "chatgpt" && model !in Api.CHATGPT_MODELS) model = Api.CHATGPT_MODELS.first()
+                    if (auth == "chatgpt" && (model.isBlank() || model.startsWith("gpt-5") || model.startsWith("gpt-4"))) model = Api.CHATGPT_MODELS.first()
                     list.clear(); fetch()
                 }, modifier = Modifier.fillMaxWidth(), height = 40.dp)
         }

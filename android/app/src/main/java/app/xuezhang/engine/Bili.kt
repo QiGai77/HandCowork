@@ -231,11 +231,11 @@ object Bili {
                     val user = "课程：${c.name}\n热词：${c.hotwords.joinToString("、")}\n" +
                         (if (slides.isNotBlank()) "PPT 页：\n$slides\n当前大约在 P.$curPage\n" else "") +
                         "前文：\n${segs.takeLast(2).joinToString("\n") { it.voice }}\n\n本段语音识别原文：\n$raw"
-                    val o = runCatching { Api.chatJson(Prompts.SEGMENT, user) }.getOrNull()
+                    val o = runCatching { Api.chatJson(Prompts.get("segment"), user) }.getOrNull()
                     val pg = o?.optInt("page", 0)?.takeIf { it > 0 } ?: curPage
                     curPage = pg
                     segs.add(Segment(startMs = g.first().first, page = pg, raw = raw, voice = o?.optString("voice")?.ifBlank { raw } ?: raw,
-                        senior = o?.optString("senior").orEmpty(), fillers = o?.optInt("fillers") ?: 0, repeats = o?.optInt("repeats") ?: 0,
+                        senior = o?.optString("senior").orEmpty().let { if (Prompts.isSkip(it)) "" else it }, offTopic = o?.let { Prompts.offTopic(it) } ?: false, fillers = o?.optInt("fillers") ?: 0, repeats = o?.optInt("repeats") ?: 0,
                         exam = o?.optBoolean("exam") ?: false))
                     Store.lecture(lec.id)?.let { Store.upsertLecture(it.copy(segments = segs.toList())) }
                     progress.floatValue = (gi + 1f) / groups.size

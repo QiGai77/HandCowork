@@ -41,29 +41,52 @@ sealed class UiBlock {
 
 object UiBlocks {
     const val MAX_BLOCK_CHARS = 6000
-    private val FENCE = Regex("```\\s*([A-Za-z]*)\\s*\\n([\\s\\S]*?)```")
+    private val FENCE = Regex("```[ \\t]*([A-Za-z]*)[ \\t]*\\r?\\n?([\\s\\S]*?)```")
+    private val TYPES = "plot|steps|quiz|compare|table|phasor|derivation|choice|mcq|chart|graph|function"
 
     /** 把一段笔记正文拆成文本和交互组件。 */
-    fun split(body: String): List<NotePart> {
+    /** 模型有时把组件 JSON 直接写在正文里、不加代码块：先包成 ```ui 块。 */
+    fun fenceInline(body: String): String {
+        if (!body.contains("\"type\"")) return body
+        val sb = StringBuilder(); var i = 0
+        if (body.contains("```")) return body
+        while (i < body.length) {
+            val s = body.indexOf('{', i)
+            if (s < 0) { sb.append(body, i, body.length); break }
+            val sp = JsonLoose.spans(body.substring(s), "{").firstOrNull()
+            if (sp != null && body.startsWith(sp, s) && Regex("^\\{\\s*\"type\"\\s*:\\s*\"($TYPES)\"", RegexOption.IGNORE_CASE).containsMatchIn(sp)) {
+                sb.append(body, i, s).append("\n```ui\n").append(sp).append("\n```\n"); i = s + sp.length
+            } else { sb.append(body, i, s + 1); i = s + 1 }
+        }
+        return sb.toString()
+    }
+
+    fun split(body: String): List<NotePart> = split(body, true)
+
+    private fun split(body: String, inline: Boolean): List<NotePart> {
         val out = mutableListOf<NotePart>()
+        fun text(t: String) {
+            val f = if (inline) runCatching { fenceInline(t) }.getOrDefault(t) else t
+            if (f != t) out.addAll(split(f, false)) else out.add(NotePart.Text(t))
+        }
         var last = 0
         for (m in FENCE.findAll(body)) {
             val before = body.substring(last, m.range.first)
-            if (before.isNotBlank()) out.add(NotePart.Text(before.trim()))
+            if (before.isNotBlank()) text(before.trim())
             val lang = m.groupValues[1].lowercase()
             val raw = m.groupValues[2].trim()
-            val blk = if (lang == "ui" || lang == "json" || lang.isEmpty()) parse(raw) else null
+            val blk = if (lang == "ui" || lang == "json" || lang.isEmpty() || lang == "uijson") parse(raw) else null
             out.add(if (blk != null) NotePart.Ui(blk) else NotePart.Text(fallbackText(raw)))
             last = m.range.last + 1
         }
         val tail = body.substring(last.coerceAtMost(body.length))
-        if (tail.isNotBlank()) out.add(NotePart.Text(tail.trim()))
+        if (tail.isNotBlank()) text(tail.trim())
         return out
     }
 
     /** 无法渲染的块：尽量把 JSON 里的文字取出来，避免整坨 JSON 糊在笔记里。 */
     fun fallbackText(raw: String): String {
-        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return raw.take(800)
+        val o = JsonLoose.parseValue(raw) as? JSONObject ?: return raw.take(800)
         val parts = mutableListOf<String>()
         fun walk(v: Any?) {
             when (v) {
@@ -78,12 +101,12 @@ object UiBlocks {
 
     fun parse(raw: String): UiBlock? {
         if (raw.length > MAX_BLOCK_CHARS) return null
-        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val o = (JsonLoose.parseValue(raw) as? JSONObject)?.let { if (it.has("type")) it else it.optJSONObject("ui") ?: it.optJSONObject("block") ?: it } ?: return null
         return runCatching {
-            when (o.optString("type").lowercase()) {
-                "plot" -> plot(o)
-                "steps" -> steps(o)
-                "quiz" -> quiz(o)
+            when (o.optString("type").lowercase().trim()) {
+                "plot", "chart", "graph", "function" -> plot(o)
+                "steps", "derivation" -> steps(o)
+                "quiz", "choice", "mcq" -> quiz(o)
                 "compare", "table" -> compare(o)
                 "phasor" -> phasor(o)
                 else -> null
@@ -128,10 +151,10 @@ object UiBlocks {
     }
 
     private fun steps(o: JSONObject): UiBlock.Steps? {
-        val a = o.optJSONArray("steps") ?: return null
+        val a = o.optJSONArray("steps") ?: o.optJSONArray("items") ?: return null
         val st = (0 until minOf(a.length(), 12)).mapNotNull { i ->
             when (val v = a.opt(i)) {
-                is JSONObject -> (v.optString("text") to v.optString("tex")).takeIf { it.first.isNotBlank() || it.second.isNotBlank() }
+                is JSONObject -> (v.optString("text").ifBlank { v.optString("desc") } to v.optString("tex").ifBlank { v.optString("formula") }.ifBlank { v.optString("latex") }.trim().removeSurrounding("$$").removeSurrounding("$")).takeIf { it.first.isNotBlank() || it.second.isNotBlank() }
                 is String -> v to ""
                 else -> null
             }
@@ -140,18 +163,34 @@ object UiBlocks {
     }
 
     private fun quiz(o: JSONObject): UiBlock.Quiz? {
-        val opts = o.optJSONArray("options").strs().filter { it.isNotBlank() }.take(6)
-        val ans = o.optInt("answer", -1)
+        val opts = (o.optJSONArray("options") ?: o.optJSONArray("choices")).strs().filter { it.isNotBlank() }.take(6)
+        val ans = answerIndex(o.opt("answer") ?: o.opt("correct"), opts)
         val q = o.optString("q").ifBlank { o.optString("question") }
         if (q.isBlank() || opts.size < 2 || ans !in opts.indices) return null
         return UiBlock.Quiz(o.optString("title"), q, opts, ans, o.optString("explain"))
     }
 
+    /** answer 可能是下标、"B"、"1"（从 1 数）或选项原文。 */
+    fun answerIndex(a: Any?, opts: List<String>): Int = when (a) {
+        is Number -> a.toInt()
+        is String -> a.trim().let { t ->
+            when {
+                t.matches(Regex("\\d+")) -> t.toInt()
+                t.length == 1 && t[0].uppercaseChar() in 'A'..'F' -> t[0].uppercaseChar() - 'A'
+                else -> opts.indexOfFirst { it.trim() == t }.takeIf { it >= 0 } ?: opts.indexOfFirst { it.startsWith(t.take(1) + ".") || it.startsWith(t.take(1) + "、") }
+            }
+        }
+        else -> -1
+    }
+
     private fun compare(o: JSONObject): UiBlock.Compare? {
-        val cols = o.optJSONArray("columns").strs()
-        if (cols.size !in 2..5) return null
-        val rows = (o.optJSONArray("rows") ?: return null).let { a ->
-            (0 until minOf(a.length(), 12)).mapNotNull { i -> a.optJSONArray(i)?.strs()?.let { r -> (r + List(cols.size) { "" }).take(cols.size) } }
+        val cols = (o.optJSONArray("columns") ?: o.optJSONArray("headers") ?: o.optJSONArray("header")).strs().take(5)
+        if (cols.size < 2) return null
+        val rows = (o.optJSONArray("rows") ?: o.optJSONArray("data") ?: return null).let { a ->
+            (0 until minOf(a.length(), 12)).mapNotNull { i ->
+                (a.optJSONArray(i)?.strs() ?: a.optJSONObject(i)?.let { ro -> cols.map { c -> ro.optString(c) } })
+                    ?.let { r -> (r + List(cols.size) { "" }).take(cols.size) }
+            }
         }
         if (rows.isEmpty()) return null
         return UiBlock.Compare(o.optString("title"), cols, rows)

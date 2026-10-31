@@ -69,7 +69,7 @@ object SlideParser {
 
     fun analyze(pages: List<Pair<Int, String>>): Pair<List<String>, List<Slide>> {
         val text = pages.joinToString("\n") { (p, t) -> "【P.$p】${t.replace(Regex("\\s+"), " ").take(500)}" }.take(16000)
-        val o = Api.chatJson(Prompts.SLIDES, text)
+        val o = Api.chatJson(Prompts.get("slides"), text)
         val hot = o.optJSONArray("hotwords")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
         val slides = o.optJSONArray("slides")?.let { a ->
             (0 until a.length()).map { i ->

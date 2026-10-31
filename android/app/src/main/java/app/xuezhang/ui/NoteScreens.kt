@@ -218,7 +218,8 @@ fun NoteScreen(id: String) {
             }
             if (menu) {
                 Column(Modifier.align(Alignment.End).padding(top = 8.dp).width(180.dp).glass(b, RoundedRectangle(22.dp), surface = Color.White.copy(alpha = 0.75f)).padding(vertical = 6.dp)) {
-                    MenuItem("重新生成笔记", "refresh") { menu = false; Live.regenerate(id); Nav.push(Route.Generating(id)) }
+                    MenuItem("重新生成 · 简单笔记", "refresh") { menu = false; Live.regenerate(id, 0); Nav.push(Route.Generating(id)) }
+                    MenuItem("重新生成 · 详细笔记", "refresh") { menu = false; Live.regenerate(id, 1); Nav.push(Route.Generating(id)) }
                     MenuItem("删除这节课", "trash", C.Red) { menu = false; Store.deleteLecture(id); Nav.pop() }
                 }
             }
@@ -408,7 +409,7 @@ private fun TranscriptTab(l: Lecture) {
     LiquidSegmented(items = listOf("原声", "学长"), selected = mode, onSelect = { mode = it }, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth())
     if (l.segments.isEmpty()) EmptyHint("没有录到内容", "")
     val teacher = Store.course(l.courseId)?.teacher?.ifBlank { null } ?: "老师"
-    l.segments.forEach { s -> if (mode == 1) SeniorBubble(s) else VoiceCard(s, teacher) }
+    l.segments.forEach { s -> if (mode == 1) { if (!s.offTopic) SeniorBubble(s) } else VoiceCard(s, teacher) }
 }
 
 // =================== 笔记库 Tab ===================
@@ -474,7 +475,7 @@ fun AnswerSheetContent(s: Sheet.Answer) {
         }.take(6000)
         try {
             ans = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                app.xuezhang.net.Api.chat(app.xuezhang.engine.Prompts.ASK, "笔记：\n$ctxText\n\n问题：${s.question}", json = false)
+                app.xuezhang.net.Api.chat(app.xuezhang.engine.Prompts.get("ask"), "笔记：\n$ctxText\n\n问题：${s.question}", json = false)
             }
         } catch (e: Exception) { err = e.message ?: "回答失败" }
     }
