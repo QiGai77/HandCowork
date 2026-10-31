@@ -264,6 +264,9 @@ object Api {
     /** 从模型回答里抠出第一个完整的 JSON 对象（容忍 ```json 包裹、前后废话）。 */
     fun extractJsonObject(t: String): JSONObject? = app.xuezhang.engine.JsonLoose.obj(t)
 
+    /** 当前服务商是不是 OpenAI / ChatGPT 账号（概念图走 gpt-image 直接出图）。 */
+    fun isGpt(): Boolean = mode() == Mode.CHATGPT || (mode() == Mode.OPENAI && Store.settings.value.llmBase.contains("api.openai.com"))
+
     /** 视觉模型（「看图」模型）。 */
     fun vision(system: String, prompt: String, jpeg: ByteArray): String {
         val s = Store.settings.value
@@ -285,8 +288,8 @@ object Api {
     }
 
     /** 文生图（「画图」模型）：OpenAI 兼容 /images/generations；ChatGPT 账号走 Responses 的 image_generation 工具。 */
-    fun images(prompt: String, n: Int = 2, size: String = "1024x576"): List<String> {
-        val s = Store.settings.value
+    fun images(prompt: String, n: Int = 2, size: String = "1024x576", model: String? = null): List<String> {
+        val s = Store.settings.value.let { if (model != null) it.copy(imageModel = model) else it }
         when (mode()) {
             Mode.CHATGPT -> {
                 val tool = JSONObject().put("type", "image_generation").put("size", "1536x1024").put("quality", "medium")
@@ -315,6 +318,7 @@ object Api {
             .header("Authorization", "Bearer $key").post(o.toString().toRequestBody(JSON)).build()
         http.newCall(req).execute().use { r ->
             val t = r.body?.string().orEmpty()
+            app.xuezhang.engine.Log.add("API", "画图 · ${s.imageModel} · HTTP ${r.code}", r.isSuccessful)
             if (!r.isSuccessful) throw ApiException("生成失败 ${r.code}：${t.take(120)}")
             val j = runCatching { JSONObject(t) }.getOrElse { throw ApiException("图片接口返回格式不对") }
             val arr = j.optJSONArray("images") ?: j.optJSONArray("data") ?: JSONArray()

@@ -81,6 +81,7 @@ object Sync {
         val os = runCatching { ctx.contentResolver.openOutputStream(uri, "wt") }.getOrNull() ?: ctx.contentResolver.openOutputStream(uri, "w")
             ?: throw ApiException("没法写入这个位置")
         os.use { it.write(bytes) }
+        Log.ok("同步", "备份到云盘文档 ${bytes.size / 1024} KB")
     }
     fun read(ctx: Context, uri: Uri): ByteArray =
         ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw ApiException("没法读取这个文件")
@@ -91,6 +92,7 @@ object Sync {
 
     fun davUpload(url: String, user: String, pass: String, bytes: ByteArray) {
         if (!url.startsWith("http")) throw ApiException("WebDAV 地址要以 http:// 或 https:// 开头")
+        Log.ok("同步", "WebDAV 上传 ${bytes.size / 1024} KB")
         runCatching { Api.http.newCall(Request.Builder().url(davBase(url) + "/").method("MKCOL", null).auth(user, pass).build()).execute().close() }
         val req = Request.Builder().url(davBase(url) + "/" + FILE).auth(user, pass).put(bytes.toRequestBody("application/zip".toMediaType())).build()
         Api.http.newCall(req).execute().use { r ->

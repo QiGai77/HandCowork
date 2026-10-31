@@ -46,6 +46,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -142,7 +144,7 @@ fun NoteScreen(id: String) {
                                     TocRow(sections, toc, { toc = !toc }) { i -> toc = false; scope.launch { listState.animateScrollToItem(3 + i) } }
                                 }
                                 1 -> MnemonicTab(l)
-                                2 -> ConceptMap(l)
+                                2 -> ConceptMapV6(l)
                                 3 -> CardsTab(l)
                                 else -> TranscriptTab(l)
                             }
@@ -304,7 +306,7 @@ private fun MnemonicTab(l: Lecture) {
 }
 
 @Composable
-private fun ConceptMap(l: Lecture) {
+internal fun ConceptMap(l: Lecture) {
     val nodes = l.nodes
     if (nodes.isEmpty()) { EmptyHint("还没有概念图", "生成笔记后会出现"); return }
     var picked by remember { mutableIntStateOf(-1) }
@@ -315,7 +317,7 @@ private fun ConceptMap(l: Lecture) {
             val w = with(d) { maxWidth.toPx() }; val h = with(d) { maxHeight.toPx() }
             val root = nodes.indexOfFirst { it.parent < 0 }.coerceAtLeast(0)
             val first = nodes.indices.filter { it != root && (nodes[it].parent == root || nodes[it].parent !in nodes.indices) }
-            val pos = remember(nodes, w, h) {
+            val basePos = remember(nodes, w, h) {
                 val p = HashMap<Int, Offset>(); p[root] = Offset(w / 2, h / 2)
                 val r1 = minOf(w, h) * 0.34f
                 first.forEachIndexed { k, i ->
@@ -333,6 +335,9 @@ private fun ConceptMap(l: Lecture) {
                 }
                 p
             }
+            // 长按拖动节点改位置，按笔记保存（存相对坐标，屏幕尺寸变化也能对上）
+            val pos = remember(basePos) { androidx.compose.runtime.mutableStateMapOf<Int, Offset>().apply {
+                putAll(basePos); MapPos.load(l.id).forEach { (k, v) -> if (k in nodes.indices) put(k, Offset(v.x * w, v.y * h)) } } }
             Canvas(Modifier.fillMaxSize()) {
                 nodes.forEachIndexed { i, n ->
                     if (i == root) return@forEachIndexed
@@ -350,6 +355,13 @@ private fun ConceptMap(l: Lecture) {
                 Box(
                     Modifier.offset { androidx.compose.ui.unit.IntOffset((p.x - sz.width / 2).toInt(), (p.y - sz.height / 2).toInt()) }
                         .onSizeChanged { sz = it }
+                        .pointerInput(i) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { picked = i },
+                                onDrag = { ch, d -> ch.consume(); val o = pos[i] ?: return@detectDragGesturesAfterLongPress
+                                    pos[i] = Offset((o.x + d.x).coerceIn(0f, w), (o.y + d.y).coerceIn(0f, h)) },
+                                onDragEnd = { MapPos.save(l.id, pos.mapValues { (_, v) -> Offset(v.x / w, v.y / h) }) })
+                        }
                         .graphicsLayer { scaleX = sc; scaleY = sc }
                         .clip(if (isRoot) RoundedCornerShape(50) else Capsule())
                         .background(if (isRoot) Color.White else col.copy(alpha = 0.12f))
@@ -368,38 +380,11 @@ private fun ConceptMap(l: Lecture) {
             BasicText(n.label, style = T.Item)
             if (n.detail.isNotBlank()) { Spacer(Modifier.height(4.dp)); RichText(n.detail, onMath = { Nav.sheet.value = Sheet.Formula(it) }) }
         }
-    } else BasicText("点节点看说明", Modifier.padding(horizontal = 22.dp, vertical = 6.dp), style = T.Cap)
+    } else BasicText("点节点看说明 · 长按拖动节点调整位置", Modifier.padding(horizontal = 22.dp, vertical = 6.dp), style = T.Cap)
 }
 
 @Composable
-private fun CardsTab(l: Lecture) {
-    if (l.cards.isEmpty()) { EmptyHint("还没有复习卡", "生成笔记后会出现"); return }
-    var idx by remember { mutableIntStateOf(0) }
-    var reveal by remember(idx) { mutableStateOf(false) }
-    val card = l.cards[idx % l.cards.size]
-    val flip by animateFloatAsState(if (reveal) 1f else 0f, spring(0.75f, 300f), label = "f")
-    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
-        PlainCard(Modifier.fillMaxWidth().graphicsLayer { rotationX = 0f; scaleX = 1f - 0.02f * flip }, radius = 30.dp, padding = PaddingValues(22.dp),
-            onClick = { reveal = !reveal }) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BasicText("复习卡 ${idx % l.cards.size + 1} / ${l.cards.size}", Modifier.weight(1f), style = T.Sub)
-                Tag(card.tag, when (card.tag) { "概念" -> C.HlBlue; "易错" -> C.HlOrange; else -> C.HlRed })
-            }
-            Spacer(Modifier.height(14.dp))
-            RichText(card.q, style = T.Body.copy(fontSize = 17.sp, lineHeight = 28.sp))
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().height(0.5.dp).background(C.Line))
-            Spacer(Modifier.height(14.dp))
-            if (reveal) RichText(card.a, style = T.Body.copy(fontSize = 16.sp))
-            else BasicText("点按卡片看答案", Modifier.fillMaxWidth().padding(vertical = 18.dp), style = T.Sub.copy(textAlign = TextAlign.Center))
-        }
-    }
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf(Triple("忘了", C.Red, 0), Triple("模糊", C.Orange, 1), Triple("记得", C.Green, 2)).forEach { (t, col, lv) ->
-            Btn(t, { card.level = lv; Store.save(); idx += 1 }, Modifier.weight(1f), tint = col)
-        }
-    }
-}
+private fun CardsTab(l: Lecture) = CardDeck(l)
 
 private fun Modifier.matchParentSizeSafe() = this.fillMaxWidth().height(300.dp)
 

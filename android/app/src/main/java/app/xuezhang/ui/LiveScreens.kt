@@ -103,6 +103,15 @@ fun LiveScreen() {
             }
             if (slide != null) item {
                 PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), radius = 20.dp) {
+                    // 课前资料实时预览：当前页原图（随页码变化），点开全屏
+                    val sp = course?.slidePath.orEmpty()
+                    if (sp.isNotBlank() && java.io.File(sp).exists()) {
+                        val total = remember(sp) { SlideImages.pageCount(sp) }
+                        androidx.compose.animation.Crossfade(slide.page, label = "slide") { pg ->
+                            SlideThumb(sp, pg, widthPx = 1200) { SlideViewer.open.value = Triple(sp, pg, total) }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BasicText(slide.title, Modifier.weight(1f), style = T.Item)
                         Tag("P.${slide.page} / ${course?.slides?.lastOrNull()?.page ?: ""}", C.Ink)

@@ -179,7 +179,33 @@ object Bili {
     private var job: Job? = null
     val running get() = job?.isActive == true
 
-    fun start(ctx: Context, info: Info, page: Page, course: Course, slideUri: Uri?, slideName: String?) {
+    /** B 站 CC / AI 字幕（player 接口；AI 字幕常需登录，拿不到就返回 null 走语音识别）。返回 (开始毫秒, 文本)。 */
+    fun subtitles(bvid: String, cid: Long): List<Pair<Long, String>>? = runCatching {
+        val j = org.json.JSONObject(get("https://api.bilibili.com/x/player/wbi/v2?bvid=$bvid&cid=$cid"))
+        val subs = j.optJSONObject("data")?.optJSONObject("subtitle")?.optJSONArray("subtitles") ?: return null
+        if (subs.length() == 0) return null
+        val pick = (0 until subs.length()).map { subs.getJSONObject(it) }.let { l -> l.firstOrNull { it.optString("lan").startsWith("zh") } ?: l.first() }
+        val url = pick.optString("subtitle_url").let { if (it.startsWith("//")) "https:$it" else it.replace("http://", "https://") }
+        if (url.isBlank()) return null
+        val body = org.json.JSONObject(get(url)).optJSONArray("body") ?: return null
+        parseSubtitleBody(body)
+    }.getOrNull()?.takeIf { it.isNotEmpty() }
+
+    /** 字幕逐句 → 每约 30 秒一段。 */
+    fun parseSubtitleBody(body: org.json.JSONArray, sec: Int = 30): List<Pair<Long, String>> {
+        val out = mutableListOf<Pair<Long, String>>(); var start = -1L; val sb = StringBuilder()
+        for (i in 0 until body.length()) {
+            val o = body.optJSONObject(i) ?: continue
+            val from = (o.optDouble("from", 0.0) * 1000).toLong()
+            if (start < 0) start = from
+            sb.append(o.optString("content")).append(' ')
+            if (from - start >= sec * 1000L) { out.add(start to sb.toString().trim()); sb.clear(); start = -1 }
+        }
+        if (sb.isNotBlank()) out.add(start.coerceAtLeast(0) to sb.toString().trim())
+        return out
+    }
+
+    fun start(ctx: Context, info: Info, page: Page, course: Course, slideUri: Uri?, slideName: String?, localAudio: Uri? = null) {
         if (running) return
         error.value = null; step.intValue = 0; progress.floatValue = 0f; detail.value = ""
         val app = ctx.applicationContext
@@ -188,9 +214,19 @@ object Bili {
                 // 1 下载音轨
                 val dir = File(app.cacheDir, "bili").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
                 val m4a = File(dir, "${info.bvid}_${page.cid}.m4a")
-                downloadAudio(info.bvid, page.cid, m4a) { d, t ->
-                    progress.floatValue = if (t > 0) d.toFloat() / t else 0f
-                    detail.value = "%.1f / %.1f MB".format(d / 1e6, t.coerceAtLeast(d) / 1e6)
+                Log.ok("导入录播课", if (localAudio != null) "本地音频 ${page.part}" else "${info.bvid} P${info.pages.indexOf(page) + 1} ${page.part}")
+                val subs = if (localAudio == null) { detail.value = "查找字幕…"; subtitles(info.bvid, page.cid) } else null
+                when {
+                    localAudio != null -> {
+                        detail.value = "读取本地音频"
+                        app.contentResolver.openInputStream(localAudio)!!.use { i -> m4a.outputStream().use { o -> i.copyTo(o) } }
+                        progress.floatValue = 1f; detail.value = "%.1f MB".format(m4a.length() / 1e6)
+                    }
+                    subs != null -> { progress.floatValue = 1f; detail.value = "找到字幕 ${subs.size} 段，跳过语音识别"; Log.ok("导入录播课", "使用 B 站字幕 ${subs.size} 段") }
+                    else -> downloadAudio(info.bvid, page.cid, m4a) { d, t ->
+                        progress.floatValue = if (t > 0) d.toFloat() / t else 0f
+                        detail.value = "%.1f / %.1f MB".format(d / 1e6, t.coerceAtLeast(d) / 1e6)
+                    }
                 }
                 // 2 对齐课件
                 step.intValue = 1; progress.floatValue = 0f
@@ -208,12 +244,13 @@ object Bili {
                 // 3 识别
                 step.intValue = 2; progress.floatValue = 0f
                 val lec = Lecture(courseId = c.id, title = page.part.ifBlank { info.title }.take(40), status = 1,
-                    durationMs = page.duration * 1000L, source = "bilibili:${info.bvid}")
+                    durationMs = page.duration * 1000L, source = if (localAudio != null) "audio:${page.part}" else "bilibili:${info.bvid}")
                 Store.upsertLecture(lec); lectureId.value = lec.id
                 val chunks = mutableListOf<Pair<File, Long>>()
-                decodeToWavChunks(m4a, dir, 30, { f, s -> chunks.add(f to s) }, { progress.floatValue = it * 0.3f })
-                val raws = mutableListOf<Pair<Long, String>>()
+                if (subs == null) decodeToWavChunks(m4a, dir, 30, { f, s -> chunks.add(f to s) }, { progress.floatValue = it * 0.3f })
+                val raws = mutableListOf<Pair<Long, String>>().apply { subs?.let { addAll(it) } }
                 chunks.forEachIndexed { i, (f, s) ->
+                    detail.value = "语音识别 ${i + 1} / ${chunks.size} 段"
                     val t = runCatching { Api.transcribe(f, c.hotwords.joinToString("，")) }.getOrElse { e -> if (i == 0) throw e else "" }
                     if (t.isNotBlank()) { raws.add(s to t); detail.value = "“…${t.takeLast(28)}…”" }
                     f.delete()
@@ -249,6 +286,7 @@ object Bili {
                 Island.show("录播课笔记生成好了", Island.Kind.Done)
             } catch (e: Exception) {
                 error.value = e.message ?: "导入失败"
+                Log.err("导入录播课", e)
                 Island.show("导入失败", Island.Kind.Warn)
             }
         }

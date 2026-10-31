@@ -69,3 +69,30 @@ class RealModelUiBlocksTest {
         assertTrue(p.single() is NotePart.Text)
     }
 }
+
+class V006MiscTest {
+    @Test fun codexModelsParsedAndHiddenSkipped() {
+        val l = app.xuezhang.net.Api.parseCodexModels("""{"models":[{"slug":"gpt-6.1-sol","visibility":"list"},{"slug":"gpt-5.1","visibility":"hide"},{"id":"gpt-6-luna"},{"slug":"old","deprecated":true}]}""")
+        assertEquals(listOf("gpt-6.1-sol", "gpt-6-luna"), l)
+        assertTrue(app.xuezhang.net.Api.sortOpenAiChat(listOf("whisper-1", "gpt-5", "gpt-6.1-sol", "text-embedding-3")).first() == "gpt-6.1-sol")
+    }
+
+    @Test fun offTopicMarker() {
+        assertTrue(app.xuezhang.engine.Prompts.offTopic(org.json.JSONObject("""{"voice":"怎么砍不死他呀","senior":"SKIP","relevant":false}""")))
+        assertTrue(!app.xuezhang.engine.Prompts.offTopic(org.json.JSONObject("""{"voice":"梯度","senior":"梯度是方向","relevant":true}""")))
+    }
+
+    @Test fun subtitleBodyGroups() {
+        val body = org.json.JSONArray((0 until 20).joinToString(",", "[", "]") { """{"from":${it * 4.0},"to":${it * 4 + 3.5},"content":"句$it"}""" })
+        val g = app.xuezhang.engine.Bili.parseSubtitleBody(body, 30)
+        assertTrue(g.size in 2..3); assertEquals(0L, g[0].first)
+    }
+
+    @Test fun mergeChunks() {
+        val a = org.json.JSONObject("""{"title":"变压器","sections":[{"title":"1"}],"nodes":[{"label":"变压器","parent":-1},{"label":"变比","parent":0}],"cards":[{"q":"a"}]}""")
+        val b = org.json.JSONObject("""{"title":"","sections":[{"title":"2"}],"nodes":[{"label":"损耗","parent":-1},{"label":"铁耗","parent":0}],"cards":[{"q":"a"},{"q":"b"}]}""")
+        val m = app.xuezhang.engine.Live.mergeNotes(listOf(a, b))
+        assertEquals(2, m.getJSONArray("sections").length()); assertEquals(2, m.getJSONArray("cards").length())
+        val n = m.getJSONArray("nodes"); assertEquals(4, n.length()); assertEquals(0, n.getJSONObject(2).getInt("parent")); assertEquals(2, n.getJSONObject(3).getInt("parent"))
+    }
+}

@@ -411,8 +411,20 @@ fun ImportBiliScreen() {
     var slideUri by remember { mutableStateOf<Uri?>(null) }
     var slideName by remember { mutableStateOf<String?>(null) }
     var courseId by remember { mutableStateOf<String?>(null) }
+    var localAudio by remember { mutableStateOf<Uri?>(null) }
+    // 本地录音 / 音频文件（m4a mp3 aac amr wav ogg opus），按录播课流程分段识别
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { cur -> val i = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME); cur.moveToFirst(); if (i >= 0) cur.getString(i) else null } ?: "录音"
+        val dur = runCatching { android.media.MediaMetadataRetriever().run { setDataSource(ctx, uri); val d = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L; release(); (d / 1000).toInt() } }.getOrDefault(0)
+        val title = name.substringBeforeLast('.').take(40)
+        localAudio = uri; err = null; pic = null; page = 1
+        info = Bili.Info("local", title, "本地音频", dur, "", listOf(Bili.Page(-1, title, dur)))
+        courseId = Store.courses.firstOrNull { c -> title.contains(c.name) }?.id
+    }
 
     fun lookup(text: String) {
+        localAudio = null
         link = text; err = null
         scope.launch {
             val t = withContext(Dispatchers.IO) { Bili.resolveShort(text) }
@@ -448,6 +460,12 @@ fun ImportBiliScreen() {
                     }.padding(horizontal = 12.dp, vertical = 8.dp), style = T.Btn.copy(color = C.Blue, fontSize = 14.sp))
                 }
             }
+            if (info == null) item {
+                Row(Modifier.padding(horizontal = 24.dp, vertical = 6.dp).clickable { pickAudio.launch(arrayOf("audio/*")) }, verticalAlignment = Alignment.CenterVertically) {
+                    Icon("mic", C.Blue, 16.dp); Spacer(Modifier.width(6.dp))
+                    BasicText("或者导入手机录音 / 本地音频文件", style = T.Btn.copy(color = C.Blue, fontSize = 14.sp))
+                }
+            }
             if (loading) item { BasicText("正在获取视频信息…", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = T.Sub) }
             err?.let { e -> item { BasicText(e, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = T.Sub.copy(color = C.Red)) } }
             info?.let { i ->
@@ -466,7 +484,7 @@ fun ImportBiliScreen() {
                                 BasicText(i.title, style = T.Btn, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 if (i.pages.size > 1 && pg != null) BasicText("P$page ${pg.part}", style = T.Label.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 BasicText("UP 主 · ${i.owner}", style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1)
-                                BasicText("将只下载音轨，约 ${maxOf(1, ((pg?.duration ?: i.duration) * 7.6 / 1024).toInt())} MB", style = T.Cap.copy(fontSize = 11.5.sp))
+                                if (i.bvid == "local") BasicText("本地音频 · 分段语音识别", style = T.Cap.copy(fontSize = 11.5.sp)) else BasicText("将只下载音轨，约 ${maxOf(1, ((pg?.duration ?: i.duration) * 7.6 / 1024).toInt())} MB", style = T.Cap.copy(fontSize = 11.5.sp))
                             }
                         }
                         if (i.pages.size > 1) {
@@ -535,12 +553,12 @@ fun ImportBiliScreen() {
             running -> GlassPill(b, "后台处理中，完成后灵动岛提醒你", {}, bottom, color = C.Sec, height = 50.dp)
             else -> GlassPill(b, if (Bili.error.value != null) "重试" else "开始导入", go@{
                 val pg = i.pages.getOrNull(page - 1) ?: Bili.Page(0, i.title, i.duration)
-                if (pg.cid == 0L) { Island.show("这个视频没有分 P 信息", Island.Kind.Warn); return@go }
+                if (pg.cid == 0L && localAudio == null) { Island.show("这个视频没有分 P 信息", Island.Kind.Warn); return@go }
                 val c = courseId?.let { Store.course(it) } ?: run {
                     val p = CoverMatch.match(i.title)
                     Course(name = p?.key ?: i.title.take(12), cover = "", colorIdx = Store.courses.size % C.course.size, source = "bilibili:${i.bvid}").also { Store.upsertCourse(it); courseId = it.id }
                 }
-                Bili.start(ctx, i, pg, c, slideUri, slideName)
+                Bili.start(ctx, i, pg, c, slideUri, slideName, localAudio)
             }, bottom, tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 52.dp)
         }
     })
@@ -590,16 +608,17 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "新" to "拍课程表直接交给「看图」模型识别，确认后一键导入",
-        "新" to "支持用 ChatGPT 账号 / Claude 账号登录，显示 5 小时与每周额度",
-        "新" to "新增 Claude、DeepSeek 官方接口；GPT 默认 gpt-6.1-sol 与 gpt-image-2.5",
-        "新" to "云同步：备份到 Google 云端硬盘、手机云盘或 WebDAV",
-        "新" to "笔记可分享为 Word、PDF、Markdown 或长图",
-        "新" to "导入课件实时显示页数和进度，灵动岛同步",
-        "改" to "「看图」「画图」改成玻璃选择器，点开再选模型",
-        "改" to "开关重新设计，公告改为实色卡片",
+        "修" to "课表照片识别：修复「没认出来」，失败时直接显示模型原话或接口错误",
+        "修" to "笔记里的交互组件不再渲染失败，认不出的自动退回文字",
+        "修" to "原声模式「上下文补全」标签不再把统计文字挤成竖排",
+        "新" to "整理笔记显示分步进度、百分比、已生成字数和耗时；可选简单 / 详细",
+        "新" to "长课分段整理再合并，逐页逐段覆盖不遗漏",
+        "新" to "学长模式自动跳过闲聊、游戏声等无关片段，原声里折叠淡化",
+        "新" to "导入手机录音 / 本地音频当录播课；B 站有字幕时直接用字幕",
+        "新" to "复习卡改成可滑动翻面的卡组；概念图可长按拖动，GPT 用户直接画成导图",
+        "新" to "我的 › 日志 与 模型提示词预览；ChatGPT 模型列表从上游实时获取",
     )
-    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.5"
+    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.6"
     fun maybeShow(ctx: Context) {
         if (shownThisLaunch) return
         shownThisLaunch = true

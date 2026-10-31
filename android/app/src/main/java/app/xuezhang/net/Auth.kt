@@ -84,7 +84,7 @@ object Auth {
         runCatching { val tmp = File(file.parentFile, "auth.bin.tmp"); tmp.writeBytes(encrypt(o.toString())); tmp.renameTo(file) }
     }
 
-    fun logoutChatGPT() { chatgpt.value = null; gptQuota.value = null; persist() }
+    fun logoutChatGPT() { app.xuezhang.engine.Log.ok("登录", "退出 ChatGPT 账号"); chatgpt.value = null; gptQuota.value = null; persist() }
     fun logoutClaude() { claude.value = null; claudeQuota.value = null; persist() }
 
     // ---------------- Keystore AES-GCM ----------------
@@ -151,7 +151,7 @@ object Auth {
                 if (!r.isSuccessful) throw ApiException("换取令牌失败 ${r.code}：${s.take(120)}")
                 JSONObject(s)
             }
-            chatgpt.value = gptToken(t, null); persist()
+            chatgpt.value = gptToken(t, null); persist(); app.xuezhang.engine.Log.ok("登录", "ChatGPT 账号登录成功")
         } finally {
             runCatching { server.close() }; runCatching { v6?.close() }; gptServer = null; gptLoginState.value = null
         }
@@ -257,7 +257,7 @@ object Auth {
             if (!r.isSuccessful) throw ApiException("Claude 授权失败 ${r.code}：${s.take(120)}")
             JSONObject(s)
         }
-        claude.value = claudeToken(t, null); claudeVerifier = null; persist()
+        claude.value = claudeToken(t, null); claudeVerifier = null; persist(); app.xuezhang.engine.Log.ok("登录", "Claude 账号登录成功")
     }
 
     private fun claudeToken(t: JSONObject, old: Token?) = Token(t.getString("access_token"),
