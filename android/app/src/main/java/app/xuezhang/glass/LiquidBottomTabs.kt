@@ -65,13 +65,10 @@ fun LiquidBottomTabs(
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit
 ) {
-    val isLightTheme = !isSystemInDarkTheme()
-    val accentColor =
-        if (isLightTheme) Color(0xFF0088FF)
-        else Color(0xFF0091FF)
-    val containerColor =
-        if (isLightTheme) Color.White.copy(0.72f)
-        else Color(0xFF121212).copy(0.4f)
+    // 自定义主题：底栏始终使用亮色玻璃，不跟随系统深色变灰
+    val isLightTheme = true
+    val accentColor = Color(0xFF0088FF)
+    val containerColor = Color.White.copy(0.78f)
 
     val tabsBackdrop = rememberLayerBackdrop()
 

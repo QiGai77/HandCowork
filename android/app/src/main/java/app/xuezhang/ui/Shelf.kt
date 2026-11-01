@@ -82,78 +82,6 @@ object BookLook {
     }
 }
 
-// =================== 笔记库：每门课一层书架 ===================
-@Composable
-fun LibraryTab() {
-    val lectures = Store.lectures
-    val groups = remember(lectures.toList(), Store.courses.toList()) {
-        val known = Store.courses.map { c -> c to lectures.filter { it.courseId == c.id }.sortedBy { it.date } }.filter { it.second.isNotEmpty() }
-        val orphan = lectures.filter { l -> Store.courses.none { it.id == l.courseId } }
-        known.map { Triple(it.first.id, it.first as Course?, it.second) } + if (orphan.isNotEmpty()) listOf(Triple("orphan", null as Course?, orphan)) else emptyList()
-    }
-    LazyColumn(Modifier.fillMaxWidth()) {
-        item {
-            TopInset()
-            LargeHeader("${groups.size} 层书架 · ${lectures.size} 本笔记 · ${lectures.sumOf { it.cards.size }} 张复习卡", "笔记")
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(44.dp).glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.5f)).clip(Capsule())
-                .clickable { Nav.push(Route.Search) }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon("search", C.Sec, 18.dp); Spacer(Modifier.width(8.dp)); BasicText("搜索笔记、公式或老师原话", style = T.Label.copy(color = C.Sec))
-            }
-        }
-        if (lectures.isEmpty()) item { EmptyHint("书架还是空的", "上一节课，就会多一本笔记") }
-        groups.forEach { (key, c, ls) -> item(key = "shelf_$key") { Bookshelf(c?.name ?: "未分类", c, ls) } }
-        item { BottomSpacer() }
-    }
-}
-
-@Composable
-private fun Bookshelf(name: String, course: Course?, books: List<Lecture>) {
-    val base = course?.let { C.course[it.colorIdx % C.course.size] } ?: C.FillGray
-    Column(Modifier.padding(top = 18.dp)) {
-        Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(Capsule()).background(base)); Spacer(Modifier.width(8.dp))
-            BasicText(name, Modifier.weight(1f), style = T.Item, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BasicText("${books.size} 本", style = T.Sub)
-            if (course != null) { Spacer(Modifier.width(10.dp)); BasicText("课程", Modifier.clickable { Nav.push(Route.CourseDetail(course.id)) }, style = T.Btn.copy(fontSize = 13.sp, color = C.Blue)) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth()) {
-            // 书架背板
-            Box(Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(196.dp).clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFFEFE6DA), Color(0xFFE2D3C0)))))
-            LazyRow(Modifier.fillMaxWidth().height(196.dp), contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.Bottom) {
-                items(books, key = { it.id }) { l -> BookSpine(l, course, base) }
-            }
-        }
-        // 木板
-        Box(Modifier.padding(horizontal = 6.dp).fillMaxWidth().height(14.dp).shadow(6.dp, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFFB98A5E), Color(0xFF8C6239)))))
-    }
-}
-
-@Composable
-private fun BookSpine(l: Lecture, course: Course?, base: Color) {
-    val h = BookLook.hash(l.id)
-    val color = lerp(base, if (h % 2 == 0) Color.Black else Color.White, (h % 5) * 0.06f)
-    val date = remember(l.date) { SimpleDateFormat("M/d", Locale.CHINA).format(Date(l.date)) }
-    val title = remember(l.title) { BookLook.spineTitle(l.title, course?.name.orEmpty()) }
-    Box(Modifier.padding(bottom = 0.dp).size(BookLook.widthDp(l).dp, BookLook.heightDp(l).dp)
-        .shadow(3.dp, RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-        .background(Brush.horizontalGradient(listOf(lerp(color, Color.Black, 0.18f), color, lerp(color, Color.White, 0.12f), color, lerp(color, Color.Black, 0.22f))))
-        .clickable { Nav.push(if (l.status == 1) Route.Generating(l.id) else Route.Book(l.id)) }
-    ) {
-        // 烫金线
-        Box(Modifier.align(Alignment.TopCenter).padding(top = 12.dp).fillMaxWidth().height(2.dp).background(Color(0xCCF3D27A)))
-        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp).fillMaxWidth().height(2.dp).background(Color(0xCCF3D27A)))
-        BasicText(title.toList().joinToString("\n"), Modifier.align(Alignment.Center).padding(vertical = 22.dp),
-            style = T.Btn.copy(color = Color.White, fontSize = 13.sp, lineHeight = 15.sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold), maxLines = 8)
-        BasicText(date, Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp), style = T.Cap.copy(color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp))
-        if (l.status == 1 || l.status == 3) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(7.dp).clip(Capsule()).background(if (l.status == 1) C.Orange else C.Red))
-    }
-}
-
 // =================== 打开一本笔记：翻页阅读 ===================
 private sealed interface BookPage {
     data object Cover : BookPage
@@ -182,7 +110,7 @@ fun BookScreen(id: String) {
     }
     val state = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
-    val base = course?.let { C.course[it.colorIdx % C.course.size] } ?: C.Blue
+    val base = bookPalette(course).cover
     Box(Modifier.fillMaxSize().background(Color(0xFF3A3532))) {
         HorizontalPager(state, Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 58.dp, bottom = 8.dp)
             .windowInsetsPadding(WindowInsets.navigationBars), beyondViewportPageCount = 1) { p ->

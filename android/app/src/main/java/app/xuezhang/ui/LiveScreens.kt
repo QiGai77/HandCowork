@@ -105,22 +105,35 @@ fun LiveScreen() {
                     BasicText(listOfNotNull(course?.name, course?.teacher?.ifBlank { null }).joinToString(" · "), style = T.Sub, maxLines = 1)
                 }
             }
-            if (slide != null) item {
+            val spPath = course?.slidePath.orEmpty()
+            if (slide != null || (spPath.isNotBlank() && java.io.File(spPath).exists())) item {
                 PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), radius = 20.dp) {
-                    // 课前资料实时预览：当前页原图（随页码变化），点开全屏
-                    val sp = course?.slidePath.orEmpty()
-                    if (sp.isNotBlank() && java.io.File(sp).exists()) {
-                        val total = remember(sp) { SlideImages.pageCount(sp) }
-                        androidx.compose.animation.Crossfade(slide.page, label = "slide") { pg ->
-                            SlideThumb(sp, pg, widthPx = 1200) { SlideViewer.open.value = Triple(sp, pg, total) }
+                    // 课件原页面：直接左右滑动翻页；讲到哪页会自动跟过去
+                    if (spPath.isNotBlank() && java.io.File(spPath).exists()) {
+                        val total = remember(spPath) { SlideImages.pageCount(spPath).coerceAtLeast(1) }
+                        val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = (Live.currentPage.intValue - 1).coerceIn(0, total - 1)) { total }
+                        LaunchedEffect(Live.currentPage.intValue) {
+                            val t = (Live.currentPage.intValue - 1).coerceIn(0, total - 1)
+                            if (t != pager.currentPage) pager.animateScrollToPage(t)
+                        }
+                        LaunchedEffect(pager.settledPage) { if (pager.settledPage + 1 != Live.currentPage.intValue) Live.currentPage.intValue = pager.settledPage + 1 }
+                        androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxWidth(), pageSpacing = 10.dp, beyondViewportPageCount = 1) { pg ->
+                            SlideThumb(spPath, pg + 1, widthPx = 1400) { SlideViewer.open.value = Triple(spPath, pg + 1, total) }
                         }
                         Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val cur = course?.slides?.firstOrNull { it.page == pager.currentPage + 1 }
+                            BasicText(cur?.title ?: (course?.slideFile ?: "课件"), Modifier.weight(1f), style = T.Item, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Tag("${pager.currentPage + 1} / $total · 左右滑", C.Ink)
+                        }
+                        course?.slides?.firstOrNull { it.page == pager.currentPage + 1 }?.formulas?.firstOrNull()?.let { MathBlock(it, T.Body, onMath = { t -> Nav.sheet.value = Sheet.Formula(t) }) }
+                    } else if (slide != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            BasicText(slide.title, Modifier.weight(1f), style = T.Item)
+                            Tag("P.${slide.page} / ${course?.slides?.lastOrNull()?.page ?: ""}", C.Ink)
+                        }
+                        slide.formulas.firstOrNull()?.let { MathBlock(it, T.Body, onMath = { t -> Nav.sheet.value = Sheet.Formula(t) }) }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicText(slide.title, Modifier.weight(1f), style = T.Item)
-                        Tag("P.${slide.page} / ${course?.slides?.lastOrNull()?.page ?: ""}", C.Ink)
-                    }
-                    slide.formulas.firstOrNull()?.let { MathBlock(it, T.Body, onMath = { t -> Nav.sheet.value = Sheet.Formula(t) }) }
                 }
             }
             if (mode == 0 && segs.isNotEmpty()) item {
@@ -160,12 +173,19 @@ fun LiveScreen() {
             Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp).fillMaxWidth()
                 .glass(b, RoundedRectangle(36.dp), surface = Color.White.copy(alpha = 0.55f)).padding(14.dp)
         ) {
+            var confirmStop by remember { mutableStateOf(false) }
+            LaunchedEffect(confirmStop) {
+                if (confirmStop) {
+                    kotlinx.coroutines.delay(3000)
+                    confirmStop = false
+                }
+            }
             Waveform(Live.levels.toList(), C.Ink.copy(alpha = 0.8f), Modifier.fillMaxWidth().height(30.dp))
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn(if (Live.paused.value) "继续" else "暂停", { Live.togglePause() }, Modifier.weight(1f), icon = if (Live.paused.value) "play" else "pause", backdrop = b)
                 Btn("标为考点", { Live.markExam() }, Modifier.weight(1.3f), icon = "star", tint = C.Orange, backdrop = b)
-                Btn("下课", { Live.stop(ctx) }, Modifier.weight(1f), icon = "stop", tint = C.Red, backdrop = b)
+                Btn(if (confirmStop) "确认下课?" else "下课", { if (confirmStop) Live.stop(ctx) else confirmStop = true }, Modifier.weight(1.1f), icon = "stop", tint = C.Red, backdrop = b)
             }
         }
     })
@@ -319,11 +339,11 @@ fun SheetHost() {
     }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(sheet != null, enter = slideInVertically(spring(0.8f, 380f)) { it }, exit = slideOutVertically(tween(220)) { it }) {
-            var explain by remember(sheet) { mutableStateOf<String?>(null) }
-            var loading by remember(sheet) { mutableStateOf(false) }
+            var explain by app.xuezhang.engine.keep<String?>("sheet.explain:$sheet") { null }
+            var loading by app.xuezhang.engine.keep("sheet.loading:$sheet") { false }
             Column(
                 Modifier.padding(8.dp).windowInsetsPadding(WindowInsets.navigationBars).fillMaxWidth()
-                    .glass(LocalBg.current!!, com.kyant.shapes.RoundedRectangle(36.dp), surface = Color.White.copy(alpha = 0.78f), blurDp = 16f, lensH = 18f, lensA = 30f)
+                    .glass(LocalBg.current!!, com.kyant.shapes.RoundedRectangle(36.dp), surface = if (ThemeState.dark) Color(0xFF1C1E24).copy(alpha = 0.9f) else Color.White.copy(alpha = 0.78f), blurDp = 16f, lensH = 18f, lensA = 30f)
                     .clip(RoundedCornerShape(36.dp)).clickable(interactionSource = null, indication = null) {}
                     .padding(horizontal = 22.dp, vertical = 14.dp)
             ) {
@@ -350,7 +370,7 @@ fun SheetHost() {
                             Btn(if (loading) "学长在想…" else "让学长讲讲", explain@{
                                 if (loading || explain != null) return@explain
                                 loading = true
-                                scope.launch {
+                                app.xuezhang.engine.Bg.scope.launch {
                                     val job = app.xuezhang.engine.AiProgress.start("formula", "讲解公式")
                                     job.phase("学长在想怎么讲", 0.95f, 10_000)
                                     explain = try {
@@ -379,6 +399,8 @@ fun SheetHost() {
                     Sheet.Sync -> SyncSheetContent()
                     is Sheet.Answer -> AnswerSheetContent(s)
                     is Sheet.Frames -> FramePickerContent(s)
+                    is Sheet.BookMenu -> BookMenuContent(s.lectureId)
+                    Sheet.CoursePick -> CoursePickContent()
                     null -> {}
                 }
                 Spacer(Modifier.height(6.dp))

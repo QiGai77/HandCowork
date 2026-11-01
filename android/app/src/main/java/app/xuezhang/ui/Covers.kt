@@ -71,24 +71,9 @@ object CoverImages {
 @Composable
 fun CoverArt(p: CoverMatch.Preset?, name: String, modifier: Modifier) {
     val base = Color(p?.color ?: CoverMatch.fallbackColor(name))
-    val glyph = p?.glyph ?: CoverMatch.glyph(name)
     Canvas(modifier.background(base)) {
         val w = size.width; val h = size.height
-        // 巨大的半透明首字
-        drawIntoCanvas2 { cv ->
-            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.argb(if (p == null) 46 else 26, 255, 255, 255)
-                textSize = h * 1.05f
-                typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
-            }
-            cv.drawText(glyph, w * 0.04f, h * 0.98f, paint)
-            if (p == null) {
-                // 通用封面：右侧再放一个清晰的首字
-                paint.color = android.graphics.Color.argb(235, 255, 255, 255); paint.textSize = h * 0.46f
-                paint.textAlign = android.graphics.Paint.Align.CENTER
-                cv.drawText(glyph, w * 0.72f, h * 0.52f + h * 0.17f, paint)
-            }
-        }
+        // 笔记封面默认纯背景：不绘制字符/文字水印，保持纯净高级背景质感与专属几何纹理
         if (p != null) motif(p.motif, w, h)
         drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.16f), Color.Black.copy(alpha = 0.06f))))
     }

@@ -1,5 +1,7 @@
 package app.xuezhang.ui
 
+import kotlinx.coroutines.launch
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -18,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -111,7 +114,189 @@ object SlideImages {
         }
     }
 
-    private fun renderPptx(path: String, page: Int, widthPx: Int): Bitmap? {
+    private fun renderPptx(path: String, page: Int, widthPx: Int): Bitmap? = runCatching { renderPptxLayout(path, page, widthPx) }.getOrNull() ?: renderPptxSimple(path, page, widthPx)
+
+    private fun attr(tag: String, name: String): String? = Regex("\\b$name=\"([^\"]*)\"").find(tag)?.groupValues?.get(1)
+    private fun hex(c: String?): Int? = c?.takeIf { it.length == 6 }?.toLongOrNull(16)?.let { (0xFF000000 or it).toInt() }
+
+    /** 按原始坐标排版：原生解析 sldSz、每个形状的 off/ext、图片、表格、填充色、字号，高保真还原原 PPTX 页面。 */
+    private fun renderPptxLayout(path: String, page: Int, widthPx: Int): Bitmap? {
+        ZipFile(path).use { z ->
+            fun read(n: String) = z.getEntry(n)?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) }
+            val xml = read("ppt/slides/slide$page.xml") ?: return null
+            val pres = read("ppt/presentation.xml").orEmpty()
+            val sz = Regex("<p:sldSz[^>]*>").find(pres)?.value
+            val sw = sz?.let { attr(it, "cx")?.toLongOrNull() } ?: 12192000L
+            val sh = sz?.let { attr(it, "cy")?.toLongOrNull() } ?: 6858000L
+            val k = widthPx.toFloat() / sw
+            val hPx = (sh * k).toInt().coerceAtLeast(1)
+
+            val rels = read("ppt/slides/_rels/slide$page.xml.rels").orEmpty()
+            val relMap = Regex("<Relationship [^>]*>").findAll(rels).mapNotNull { m ->
+                val id = attr(m.value, "Id") ?: return@mapNotNull null; val t = attr(m.value, "Target") ?: return@mapNotNull null
+                id to t.replace("../", "ppt/")
+            }.toMap()
+
+            // 主题色表：解析 accent1~accent6, dk1, lt1 等
+            val themeXml = read("ppt/theme/theme1.xml").orEmpty()
+            val schemeMap = mutableMapOf<String, Int>()
+            Regex("<a:(\\w+)>[\\s\\S]*?<a:srgbClr val=\"([0-9A-Fa-f]{6})\"").findAll(themeXml).forEach { tm ->
+                hex(tm.groupValues[2])?.let { schemeMap[tm.groupValues[1]] = it }
+            }
+
+            fun resolveClr(snippet: String?): Int? {
+                if (snippet == null) return null
+                val srgb = Regex("<a:srgbClr val=\"([0-9A-Fa-f]{6})\"").find(snippet)?.groupValues?.get(1)
+                if (srgb != null) return hex(srgb)
+                val scheme = Regex("<a:schemeClr val=\"(\\w+)\"").find(snippet)?.groupValues?.get(1)
+                if (scheme != null) return schemeMap[scheme]
+                return null
+            }
+
+            val b = Bitmap.createBitmap(widthPx, hPx, Bitmap.Config.ARGB_8888)
+            val cv = Canvas(b)
+
+            // 背景色解析：优先 slide 背景，否则取 layout 背景
+            var bgClr = resolveClr(Regex("<p:bg>[\\s\\S]*?</p:bg>").find(xml)?.value)
+            if (bgClr == null) {
+                val layoutRel = relMap.entries.firstOrNull { it.value.contains("slideLayout") }?.value
+                if (layoutRel != null) {
+                    val layoutXml = read(layoutRel).orEmpty()
+                    bgClr = resolveClr(Regex("<p:bg>[\\s\\S]*?</p:bg>").find(layoutXml)?.value)
+                }
+            }
+            cv.drawColor(bgClr ?: android.graphics.Color.WHITE)
+
+            // 背景图片（blip）
+            val bgBlip = Regex("<p:bg>[\\s\\S]*?r:embed=\"([^\"]+)\"").find(xml)?.groupValues?.get(1)
+            if (bgBlip != null) {
+                relMap[bgBlip]?.let { t ->
+                    z.getEntry(t)?.let { e ->
+                        z.getInputStream(e).use { BitmapFactory.decodeStream(it) }?.let { im ->
+                            cv.drawBitmap(im, null, android.graphics.RectF(0f, 0f, widthPx.toFloat(), hPx.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
+                        }
+                    }
+                }
+            }
+
+            var drew = 0
+            val tree = xml.substringAfter("<p:spTree>", xml)
+
+            // 匹配所有原生形状、图片与表格组件
+            Regex("<p:(sp|pic|graphicFrame|cxnSp)\\b[^>]*>([\\s\\S]*?)</p:\\1>").findAll(tree).forEach { m ->
+                val tag = m.groupValues[1]
+                val body = m.groupValues[2]
+                val off = Regex("<a:off [^>]*>").find(body)?.value
+                val ext = Regex("<a:ext [^>]*>").find(body)?.value
+                val x = (off?.let { attr(it, "x")?.toLongOrNull() } ?: 0L) * k
+                val y = (off?.let { attr(it, "y")?.toLongOrNull() } ?: 0L) * k
+                val w = (ext?.let { attr(it, "cx")?.toLongOrNull() } ?: sw) * k
+                val h = (ext?.let { attr(it, "cy")?.toLongOrNull() } ?: 0L) * k
+                val rect = android.graphics.RectF(x, y, x + w, y + h)
+
+                when (tag) {
+                    "pic" -> {
+                        val rid = Regex("r:embed=\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+                        val t = rid?.let { relMap[it] }
+                        if (t != null && Regex("\\.(png|jpe?g|gif|bmp|webp)$", RegexOption.IGNORE_CASE).containsMatchIn(t)) {
+                            z.getEntry(t)?.let { e ->
+                                val o = BitmapFactory.Options().apply { inSampleSize = if (e.size > 3_000_000) 2 else 1 }
+                                z.getInputStream(e).use { BitmapFactory.decodeStream(it, null, o) }?.let { im ->
+                                    cv.drawBitmap(im, null, rect, Paint(Paint.FILTER_BITMAP_FLAG))
+                                    drew++
+                                }
+                            }
+                        }
+                    }
+                    "graphicFrame" -> {
+                        // 表格原生渲染：解析 a:tbl、a:gridCol、a:tr、a:tc
+                        val tbl = Regex("<a:tbl>([\\s\\S]*?)</a:tbl>").find(body)?.groupValues?.get(1)
+                        if (tbl != null) {
+                            val cols = Regex("<a:gridCol\\b[^>]*\\bw=\"(\\d+)\"").findAll(tbl).map { it.groupValues[1].toLong() * k }.toList()
+                            val rows = Regex("<a:tr\\b[^>]*\\bh=\"(\\d+)\">([\\s\\S]*?)</a:tr>").findAll(tbl).toList()
+                            var curY = y
+                            val borderPaint = Paint().apply { color = 0x33000000; style = Paint.Style.STROKE; strokeWidth = 1f * k * 12700 }
+                            val cellPaint = Paint().apply { color = 0x08000000; style = Paint.Style.FILL }
+                            rows.forEach { rowMatch ->
+                                val rowH = rowMatch.groupValues[1].toLong() * k
+                                val cells = Regex("<a:tc>([\\s\\S]*?)</a:tc>").findAll(rowMatch.groupValues[2]).toList()
+                                var curX = x
+                                cells.forEachIndexed { colIdx, cellMatch ->
+                                    val cellW = cols.getOrNull(colIdx) ?: (w / maxOf(1, cells.size))
+                                    val cellRect = android.graphics.RectF(curX, curY, curX + cellW, curY + rowH)
+                                    val cellFill = resolveClr(Regex("<a:solidFill>[\\s\\S]*?</a:solidFill>").find(cellMatch.groupValues[1])?.value)
+                                    if (cellFill != null) {
+                                        cv.drawRect(cellRect, Paint().apply { color = cellFill })
+                                    } else {
+                                        cv.drawRect(cellRect, cellPaint)
+                                    }
+                                    cv.drawRect(cellRect, borderPaint)
+
+                                    // 单元格文字
+                                    val cText = Regex("<a:t>([^<]*)</a:t>").findAll(cellMatch.groupValues[1]).joinToString(" ") { it.groupValues[1] }
+                                    if (cText.isNotBlank()) {
+                                        val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                                            textSize = maxOf(10f, 12f * 12700f * k)
+                                            color = 0xFF1D1D1F.toInt()
+                                        }
+                                        val sl = StaticLayout.Builder.obtain(cText, 0, cText.length, tp, maxOf(10, (cellW - 4).toInt())).build()
+                                        cv.save(); cv.translate(curX + 2, curY + 2); sl.draw(cv); cv.restore()
+                                    }
+                                    curX += cellW
+                                }
+                                curY += rowH
+                                drew++
+                            }
+                        }
+                    }
+                    else -> { // sp or cxnSp
+                        val spPr = Regex("<p:spPr>([\\s\\S]*?)</p:spPr>").find(body)?.groupValues?.get(1).orEmpty()
+                        if (!spPr.contains("<a:noFill/>")) {
+                            val c = resolveClr(Regex("<a:solidFill>[\\s\\S]*?</a:solidFill>").find(spPr)?.value)
+                            if (c != null) {
+                                cv.drawRoundRect(rect, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c })
+                                drew++
+                            }
+                        }
+                        val txBody = Regex("<p:txBody>([\\s\\S]*?)</p:txBody>").find(body)?.groupValues?.get(1) ?: return@forEach
+                        val isTitle = body.contains("type=\"title\"") || body.contains("type=\"ctrTitle\"")
+                        var ty = y + 4 * k * 12700
+                        Regex("<a:p>([\\s\\S]*?)</a:p>").findAll(txBody).forEach { pm ->
+                            val pr = pm.groupValues[1]
+                            val text = Regex("<a:t>([^<]*)</a:t>").findAll(pr).joinToString("") { it.groupValues[1] }
+                                .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+                            val szv = Regex("<a:rPr[^>]*\\bsz=\"(\\d+)\"").find(pr)?.groupValues?.get(1)?.toFloatOrNull()
+                            val pt = szv?.div(100f) ?: if (isTitle) 36f else 18f
+                            val px = pt * 12700f * k
+                            if (text.isBlank()) { ty += px * 0.6f; return@forEach }
+                            val col = resolveClr(Regex("<a:rPr[\\s\\S]*?</a:rPr>").find(pr)?.value) ?: 0xFF1D1D1F.toInt()
+                            val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                                textSize = px
+                                color = col
+                                isFakeBoldText = isTitle || Regex("<a:rPr[^>]*\\bb=\"1\"").containsMatchIn(pr)
+                            }
+                            val algn = when (Regex("<a:pPr[^>]*algn=\"(\\w+)\"").find(pr)?.groupValues?.get(1)) {
+                                "ctr" -> Layout.Alignment.ALIGN_CENTER
+                                "r" -> Layout.Alignment.ALIGN_OPPOSITE
+                                else -> Layout.Alignment.ALIGN_NORMAL
+                            }
+                            val bullet = !isTitle && pr.contains("<a:buChar")
+                            val str = if (bullet) "• $text" else text
+                            val lw = (w - 8 * k * 12700).toInt().coerceAtLeast(20)
+                            val l = StaticLayout.Builder.obtain(str, 0, str.length, tp, lw).setAlignment(algn).build()
+                            cv.save(); cv.translate(x + 4 * k * 12700, ty); l.draw(cv); cv.restore()
+                            ty += l.height + px * 0.25f
+                            drew++
+                        }
+                    }
+                }
+            }
+            return b
+        }
+    }
+
+    private fun renderPptxSimple(path: String, page: Int, widthPx: Int): Bitmap? {
+
         ZipFile(path).use { z ->
             val xml = z.getEntry("ppt/slides/slide$page.xml")?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) } ?: return null
             val rels = z.getEntry("ppt/slides/_rels/slide$page.xml.rels")?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) }.orEmpty()
@@ -196,17 +381,26 @@ fun SlideViewerHost() {
     val cur = SlideViewer.open.value
     AnimatedVisibility(cur != null, enter = fadeIn(), exit = fadeOut()) {
         val (path, page0, total) = cur ?: return@AnimatedVisibility
-        var page by remember(cur) { mutableStateOf(page0) }
-        var scale by remember(page) { mutableFloatStateOf(1f) }
-        var off by remember(page) { mutableStateOf(Offset.Zero) }
-        val img by produceState<ImageBitmap?>(null, path, page) {
-            value = withContext(Dispatchers.IO) { SlideImages.render(path, page, 1800)?.asImageBitmap() }
-        }
+        val n = total.coerceAtLeast(page0)
+        val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = (page0 - 1).coerceIn(0, n - 1)) { n }
+        val page = pager.currentPage + 1
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
         Box(Modifier.fillMaxSize().background(Color(0xF2000000)).clickable(interactionSource = null, indication = null) {}) {
-            img?.let {
-                Image(it, "课件第 $page 页", Modifier.fillMaxSize().pointerInput(page) {
-                    detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 4f); off = if (scale == 1f) Offset.Zero else off + pan }
-                }.graphicsLayer { scaleX = scale; scaleY = scale; translationX = off.x; translationY = off.y }, contentScale = ContentScale.Fit)
+            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { idx ->
+                var scale by remember(idx) { mutableFloatStateOf(1f) }
+                var off by remember(idx) { mutableStateOf(Offset.Zero) }
+                val img by produceState<ImageBitmap?>(null, path, idx) {
+                    value = withContext(Dispatchers.IO) { SlideImages.render(path, idx + 1, 1800)?.asImageBitmap() }
+                }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    img?.let {
+                        Image(it, "课件第 ${idx + 1} 页", Modifier.fillMaxSize().pointerInput(idx) {
+                            detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; off = Offset.Zero })
+                        }.then(if (scale > 1f) Modifier.pointerInput(idx, "zoom") {
+                            detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 4f); off = if (scale == 1f) Offset.Zero else off + pan }
+                        } else Modifier).graphicsLayer { scaleX = scale; scaleY = scale; translationX = off.x; translationY = off.y }, contentScale = ContentScale.Fit)
+                    } ?: BasicText("加载中…", style = T.Sub.copy(color = Color.White))
+                }
             }
             Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 BasicText("第 $page 页" + if (total > 0) " / $total" else "", Modifier.weight(1f), style = T.Btn.copy(color = Color.White))
@@ -214,10 +408,10 @@ fun SlideViewerHost() {
                     .padding(horizontal = 16.dp, vertical = 8.dp), style = T.Btn.copy(color = Color.White))
             }
             Row(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                BasicText("上一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = page > 1) { page-- }
+                BasicText("上一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = page > 1) { scope.launch { pager.animateScrollToPage(page - 2) } }
                     .padding(horizontal = 18.dp, vertical = 10.dp), style = T.Btn.copy(color = if (page > 1) Color.White else Color(0x66FFFFFF)))
-                BasicText("下一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = total == 0 || page < total) { page++ }
-                    .padding(horizontal = 18.dp, vertical = 10.dp), style = T.Btn.copy(color = if (total == 0 || page < total) Color.White else Color(0x66FFFFFF)))
+                BasicText("下一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = page < n) { scope.launch { pager.animateScrollToPage(page) } }
+                    .padding(horizontal = 18.dp, vertical = 10.dp), style = T.Btn.copy(color = if (page < n) Color.White else Color(0x66FFFFFF)))
             }
         }
     }

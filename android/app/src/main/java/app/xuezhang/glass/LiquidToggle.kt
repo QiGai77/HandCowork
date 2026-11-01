@@ -45,7 +45,7 @@ fun LiquidToggle(
     @Suppress("UNUSED_PARAMETER") backdrop: Backdrop? = null,
     modifier: Modifier = Modifier
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = false
     val accent = if (dark) Color(0xFF30D158) else Color(0xFF34C759)
     val offTrack = if (dark) Color(0xFF39393D) else Color(0xFFE5E5EA)
     val scope = rememberCoroutineScope()

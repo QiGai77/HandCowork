@@ -401,13 +401,17 @@ private fun TranscriptTab(l: Lecture) {
 // =================== 问学长（底部弹层） ===================
 @Composable
 fun AnswerSheetContent(s: Sheet.Answer) {
-    var ans by remember(s) { mutableStateOf<String?>(null) }
-    var err by remember(s) { mutableStateOf<String?>(null) }
-    var streamed by remember(s) { mutableStateOf("") }
+    var ans by app.xuezhang.engine.keep<String?>("ask.ans:$s") { null }
+    var err by app.xuezhang.engine.keep<String?>("ask.err:$s") { null }
+    var streamed by app.xuezhang.engine.keep("ask.stream:$s") { "" }
+    var started by app.xuezhang.engine.keep("ask.started:$s") { false }
     androidx.compose.runtime.LaunchedEffect(s) {
+        if (started) return@LaunchedEffect
+        started = true
         val l = Store.lecture(s.lectureId)
         if (l == null) { err = "找不到这节课"; return@LaunchedEffect }
-        if (!app.xuezhang.net.Api.llmReady()) { err = "先在「我的」里配置大模型 API Key，学长才能回答"; return@LaunchedEffect }
+        if (!app.xuezhang.net.Api.llmReady()) { err = "先在「我的」里配置大模型 API Key，学长才能回答"; started = false; return@LaunchedEffect }
+        app.xuezhang.engine.Bg.scope.launch {
         val ctxText = buildString {
             append("课程：${Store.course(l.courseId)?.name.orEmpty()}\n标题：${l.title}\n")
             l.sections.forEach { append("## ${it.title}\n${it.body.replace(Regex("```[\\s\\S]*?```"), "")}\n") }
@@ -424,6 +428,7 @@ fun AnswerSheetContent(s: Sheet.Answer) {
             ans = r.ifBlank { streamed }
             app.xuezhang.engine.AiProgress.finish(job, true, "学长回答好了")
         } catch (e: Exception) { err = e.message ?: "回答失败"; app.xuezhang.engine.AiProgress.finish(job, false, "回答失败") }
+        }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon("sparkle", C.Blue, 18.dp, fill = true); Spacer(Modifier.width(8.dp))

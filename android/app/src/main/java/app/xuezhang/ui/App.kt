@@ -58,6 +58,9 @@ sealed interface Route {
     data object Drive : Route
     data class Book(val lectureId: String) : Route
     data class Materials(val courseId: String) : Route
+    data object Advanced : Route
+    data object Accounts : Route
+    data class ImageStudio(val target: String = "") : Route
 }
 
 object Nav {
@@ -79,6 +82,8 @@ sealed interface Sheet {
     data class Model(val kind: Int) : Sheet // 0 语音 1 大模型
     data object Sync : Sheet
     data class Frames(val lectureId: String, val secIdx: Int) : Sheet
+    data class BookMenu(val lectureId: String) : Sheet
+    data object CoursePick : Sheet
 }
 
 /** 内容层（参与玻璃折射） + 浮层（玻璃控件）。 */
@@ -97,6 +102,8 @@ fun GlassScaffold(content: @Composable BoxScope.() -> Unit, overlay: @Composable
 
 @Composable
 fun App() {
+    val sysDark = androidx.compose.foundation.isSystemInDarkTheme()
+    ThemeState.dark = when (app.xuezhang.data.Store.settings.value.theme) { 1 -> false; 2 -> true; else -> sysDark }
     val top = Nav.stack.last()
     BackHandler(enabled = Nav.sheet.value != null || Nav.stack.size > 1 || SlideViewer.open.value != null) {
         when {
@@ -137,6 +144,9 @@ fun App() {
                 Route.Drive -> DriveScreen()
                 is Route.Book -> BookScreen(r.lectureId)
                 is Route.Materials -> MaterialsScreen(r.courseId)
+                Route.Advanced -> AdvancedScreen()
+                Route.Accounts -> AccountsScreen()
+                is Route.ImageStudio -> ImageStudioScreen(r.target)
             }
         }
         }
@@ -163,7 +173,7 @@ fun TabsHost() {
         overlay = { backdrop ->
             Row(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 LiquidBottomTabs(
@@ -171,17 +181,15 @@ fun TabsHost() {
                     onTabSelected = { Nav.tab.intValue = it },
                     backdrop = backdrop,
                     tabsCount = TABS.size,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     TABS.forEachIndexed { i, (label, ic) ->
                         LiquidBottomTab({ Nav.tab.intValue = i }) {
-                            Icon(ic, C.Ink, 24.dp)
-                            BasicText(label, style = TextStyle(C.Ink, 10.5.sp, FontWeight.SemiBold))
+                            Icon(ic, androidx.compose.ui.graphics.Color(0xFF1D1D1F), 24.dp)
+                            BasicText(label, style = TextStyle(androidx.compose.ui.graphics.Color(0xFF1D1D1F), 10.5.sp, FontWeight.SemiBold))
                         }
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-                GlassCircle(backdrop, "search", { Nav.push(Route.Search) }, size = 64.dp)
             }
         }
     )
