@@ -66,7 +66,7 @@ fun DriveScreen() {
     fun refresh() {
         if (Auth.google.value == null || loading) return
         loading = true
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try { files = withContext(Dispatchers.IO) { GDrive.list() } } catch (e: Exception) { msg = "读取 Drive 失败：${e.message}" } finally { loading = false }
         }
     }
@@ -76,7 +76,7 @@ fun DriveScreen() {
         Store.updateSettings(Store.settings.value.copy(gClientId = cid.trim(), gClientSecret = sec.trim()))
         if (!GDrive.configured()) { msg = "先填写 Google OAuth 客户端 ID（以 .apps.googleusercontent.com 结尾）"; showSetup = true; return }
         msg = null
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try { withContext(Dispatchers.IO) { GDrive.login(ctx) }; showSetup = false; Island.show("已连接 Google Drive", Island.Kind.Done); refresh() }
             catch (e: Exception) { msg = e.message ?: "连接失败" }
         }
@@ -85,7 +85,7 @@ fun DriveScreen() {
         if (GDrive.syncing.value) return
         msg = null
         val items = GDrive.locals()
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try {
                 val (up, skip, fail) = AiProgress.run("gdrive", "同步到 Google Drive", doneMsg = "Google Drive 同步完成") { job ->
                     job.phase("连接 Drive 文件夹", 0.05f, 4000)
@@ -99,7 +99,7 @@ fun DriveScreen() {
         }
     }
     fun restore(f: GDrive.DFile) {
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try {
                 val (c, l) = AiProgress.run("gdrive-restore", "从 Google Drive 恢复") { job ->
                     job.phase("下载 ${f.name}", 0.7f, 8000, size(f.size))
@@ -129,7 +129,7 @@ fun DriveScreen() {
                             BasicText(if (acc != null) (acc.plan.ifBlank { "Google 账号" }) else "未连接", style = T.Item)
                             BasicText(acc?.email?.ifBlank { "已授权" } ?: "连接后只会访问本应用创建的文件（drive.file）", style = T.Cap, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
-                        if (acc != null) BasicText("断开", Modifier.clip(Capsule()).background(C.Fill).clickable { GDrive.logout(); files = null; msg = "已断开 Google Drive" }
+                        if (acc != null) BasicText("断开", Modifier.clip(Capsule()).background(C.Fill).clickable { GDrive.logout(); files = null; msg = "已断开 Google Drive"; Nav.push(Route.GoogleConnect) }
                             .padding(horizontal = 14.dp, vertical = 7.dp), style = T.Btn.copy(fontSize = 13.sp, color = C.Red))
                     }
                     GDrive.loginState.value?.let {
@@ -140,7 +140,7 @@ fun DriveScreen() {
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    if (acc == null) Btn(if (GDrive.loginState.value != null) "等待授权…" else "连接 Google Drive", { connect() }, Modifier.fillMaxWidth(), icon = "cloud", tint = C.Blue)
+                    if (acc == null) Btn(if (GDrive.loginState.value != null) "等待授权…" else "连接 Google Drive", { Store.updateSettings(Store.settings.value.copy(gClientId = cid.trim(), gClientSecret = sec.trim())); if (GDrive.configured()) Nav.push(Route.GoogleConnect) else connect() }, Modifier.fillMaxWidth(), icon = "cloud", tint = C.Blue)
                     else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Btn(if (GDrive.syncing.value) "同步中…" else "立即同步", { sync() }, Modifier.weight(1f), icon = "cloudup", tint = C.Blue)
                         Btn("刷新", { refresh() }, Modifier.weight(1f), icon = "refresh")

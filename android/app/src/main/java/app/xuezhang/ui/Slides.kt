@@ -1,5 +1,11 @@
 package app.xuezhang.ui
 
+import androidx.compose.foundation.layout.width
+
+import androidx.compose.foundation.layout.height
+
+import androidx.compose.foundation.layout.size
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -208,16 +214,46 @@ fun SlideViewerHost() {
                     detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 4f); off = if (scale == 1f) Offset.Zero else off + pan }
                 }.graphicsLayer { scaleX = scale; scaleY = scale; translationX = off.x; translationY = off.y }, contentScale = ContentScale.Fit)
             }
-            Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicText("第 $page 页" + if (total > 0) " / $total" else "", Modifier.weight(1f), style = T.Btn.copy(color = Color.White))
-                BasicText("关闭", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable { SlideViewer.open.value = null }
-                    .padding(horizontal = 16.dp, vertical = 8.dp), style = T.Btn.copy(color = Color.White))
+            // 10 课件全屏：关闭、直播中跟随老师翻页、底部胶片条选页
+            var follow by remember { mutableStateOf(true) }
+            val live = app.xuezhang.engine.Live.running.value
+            LaunchedEffect(follow, app.xuezhang.engine.Live.currentPage.intValue, live) {
+                val lp = app.xuezhang.engine.Live.currentPage.intValue
+                if (live && follow && lp > 0) page = lp
             }
-            Row(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                BasicText("上一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = page > 1) { page-- }
-                    .padding(horizontal = 18.dp, vertical = 10.dp), style = T.Btn.copy(color = if (page > 1) Color.White else Color(0x66FFFFFF)))
-                BasicText("下一页", Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable(enabled = total == 0 || page < total) { page++ }
-                    .padding(horizontal = 18.dp, vertical = 10.dp), style = T.Btn.copy(color = if (total == 0 || page < total) Color.White else Color(0x66FFFFFF)))
+            androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).clickable { SlideViewer.open.value = null }, contentAlignment = Alignment.Center) {
+                        Icon("close", Color.White, 18.dp, 2.4f)
+                    }
+                    BasicText(if (live) "课件（直播中）" else "课件", Modifier.weight(1f), style = T.Btn.copy(color = Color.White, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                    if (live) BasicText("● " + app.xuezhang.engine.Live.fmt(app.xuezhang.engine.Live.elapsed.longValue), Modifier.clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF)).padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = T.Cap.copy(color = Color(0xFFFF6B6B), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
+                    else Spacer(Modifier.width(40.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(Color(0x22FFFFFF)).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("第 $page / ${if (total > 0) total else "?"} 页", Modifier.weight(1f), style = T.Btn.copy(color = Color.White, fontSize = 14.sp))
+                    if (live) {
+                        BasicText("跟随老师翻页", style = T.Cap.copy(color = Color.White.copy(alpha = 0.8f)))
+                        Spacer(Modifier.width(8.dp))
+                        BasicText(if (follow) "ON" else "OFF", Modifier.clip(RoundedCornerShape(50)).background(if (follow) C.Jade else Color(0x44FFFFFF)).clickable { follow = !follow }
+                            .padding(horizontal = 10.dp, vertical = 4.dp), style = T.Btn.copy(color = Color.White, fontSize = 12.sp))
+                    }
+                }
+            }
+            if (total > 1) androidx.compose.foundation.lazy.LazyRow(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 14.dp),
+                state = androidx.compose.foundation.lazy.rememberLazyListState((page - 3).coerceAtLeast(0)),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(total) { i ->
+                    val pg = i + 1
+                    androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(86.dp, 52.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x22FFFFFF))
+                            .then(if (pg == page) Modifier.border(2.dp, C.Jade, RoundedCornerShape(8.dp)) else Modifier)
+                            .clickable { follow = false; page = pg }) { SlideThumb(path, pg, Modifier.fillMaxSize(), widthPx = 260) }
+                        BasicText("$pg", style = T.Cap.copy(color = if (pg == page) Color.White else Color.White.copy(alpha = 0.55f), fontSize = 11.sp))
+                    }
+                }
             }
         }
     }

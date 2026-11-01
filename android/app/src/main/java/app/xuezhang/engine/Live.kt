@@ -58,8 +58,13 @@ object Live {
     val genStream = mutableStateOf("")
     /** 本次生成选的详略（null 用设置里的默认）。 */
     @Volatile var genDepth: Int? = null
+    /** 下课页的开关：生成复习卡（含兜底） */
+    @Volatile var genCards: Boolean = true
     /** 录播课导入自己会在截帧之后再画导图，这里关掉自动导图。 */
     @Volatile var autoMindMap = true
+    /** false：下课后不自动生成，等用户在「下课」页点「生成笔记」。 */
+    @Volatile var autoGenerate = false
+    val ended = mutableStateOf<String?>(null)
 
     /** 长整理稿按行切块，每块不超过 max 字。 */
     fun chunkTranscript(t: String, max: Int): List<String> {
@@ -253,7 +258,8 @@ object Live {
         }
         discarded.value = null
         persist()
-        generate(id)
+        // 重构版：下课后先进「下课」页选简单/详细、复习卡/导图开关，再生成
+        if (autoGenerate) generate(id) else { Store.lecture(id)?.let { Store.upsertLecture(it.copy(status = 3)) }; ended.value = id }
     }
 
     fun regenerate(id: String, depth: Int? = null) { genDepth = depth; scope.launch { generate(id) } }
@@ -265,7 +271,7 @@ object Live {
         if (l.segments.isEmpty()) { Store.upsertLecture(l.copy(status = 3)); genError.value = "这节课没有识别到内容"; return }
         generating.value = true; genError.value = null; genStep.intValue = 0; genPct.floatValue = 0.05f; genDetail.value = "整理最后几段录音"; genStream.value = ""
         Store.upsertLecture(l.copy(status = 1))
-        val job = AiProgress.start("notes:$id", "整理笔记")
+        val job = AiProgress.start("notes:$id", "整理笔记", origin = app.xuezhang.ui.Route.Generating(id)) { regenerate(id, genDepth) }
         job.phase("过滤语气词、对齐页码", 0.12f, 1500)
         try {
             for (s in 1..2) { delay(400); genStep.intValue = s }
@@ -316,18 +322,31 @@ object Live {
                 sections = sections,
                 mnemonics = arr("mnemonics").objs { Mnemonic(it.optString("title"), it.optString("body")) },
                 nodes = arr("nodes").objs { Node(it.optString("label"), it.optInt("parent", -1), it.optString("detail")) },
-                cards = arr("cards").objs { Card(it.optString("q"), it.optString("a"), it.optString("tag", "考点")) },
+                cards = CardGen.fromJson(o.optJSONArray("cards") ?: o.optJSONArray("flashcards")),
                 status = 2)
-            Store.upsertLecture(done)
+            // 复习卡兜底：短课常常一张卡都没有 —— 单独再请求一次模型，还不够就从助记 / 概念 / 小节本地生成
+            var cardsOut = done.cards
+            if (genCards && CardGen.needMore(cardsOut)) {
+                job.phase("补充复习卡", 0.985f, 20_000)
+                val more = runCatching {
+                    withContext(Dispatchers.IO) { CardGen.parseReply(Api.gen(CardGen.PROMPT, listOf(Api.Part("课程：${c?.name ?: ""}\n笔记：\n" + notesText.take(8000))), Store.settings.value.llmModel, json = true)) }
+                }.onFailure { Log.err("整理笔记", it, "补充复习卡失败") }.getOrDefault(emptyList())
+                cardsOut = (cardsOut + more).distinctBy { it.q }
+                if (CardGen.needMore(cardsOut)) cardsOut = CardGen.local(done.sections, done.mnemonics, done.nodes, cardsOut)
+                Log.ok("整理笔记", "复习卡兜底：模型补 ${more.size} 张，共 ${cardsOut.size} 张")
+            }
+            val done2 = done.copy(cards = cardsOut)
+            Store.upsertLecture(done2)
             genStep.intValue = 5
             genPct.floatValue = 1f; genDetail.value = "完成"
-            Log.ok("整理笔记", "完成 · ${done.sections.size} 节 · ${done.cards.size} 张卡")
-            AiProgress.finish(job, true, "笔记生成好了")
+            Log.ok("整理笔记", "完成 · ${done2.sections.size} 节 · ${done2.cards.size} 张卡")
+            AiProgress.finish(job, true, null, island = false)
             // OpenAI / ChatGPT：笔记好了自动用 gpt-image-2.5-flare 画 AI 导图（后台，不阻塞）
             if (Api.isGpt() && done.nodes.isNotEmpty() && autoMindMap) scope.launch { runCatching { MindMap.generate(id) } }
+            Island.show("笔记已生成 · 轻点查看", Island.Kind.Done) { app.xuezhang.ui.Nav.open(app.xuezhang.ui.Route.Note(id)) }
         } catch (e: Exception) {
             genError.value = e.message
-            AiProgress.finish(job, false, "笔记生成失败"); job.error.value = e.message
+            AiProgress.finish(job, false, "笔记生成失败 · 轻点重试"); job.error.value = e.message
             Log.err("整理笔记", e)
             Store.lecture(id)?.let { Store.upsertLecture(it.copy(status = 3)) }
         } finally { generating.value = false }

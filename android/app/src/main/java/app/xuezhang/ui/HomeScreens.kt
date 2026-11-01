@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -118,8 +120,13 @@ fun DarkPlus(onClick: () -> Unit) {
     }
 }
 
+/** 01 课程表首页（重构版：液态玻璃课程表）。 */
 @Composable
-fun HomeTab() {
+fun HomeTab() = TimetableHome()
+
+/** v0.0.7 的「今天」首页，保留备用。 */
+@Composable
+fun TodayTabLegacy() {
     val start = rememberStartClass()
     val cal = Schedule.clock()
     val wd = Schedule.isoWeekday(cal)
@@ -327,72 +334,115 @@ fun LiveBanner() {
     }
 }
 
-// =================== 课程详情 ===================
+// =================== 04 课程详情（重构版） ===================
 @Composable
 fun CourseDetailScreen(id: String) {
     val c = Store.course(id) ?: run { Nav.pop(); return }
     val start = rememberStartClass()
-    val lectures = Store.lectures.filter { it.courseId == id }
+    val lectures = Store.lectures.filter { it.courseId == id }.sortedBy { it.date }
+    val base = courseColor(c)
+    val cal = Schedule.clock()
+    val nowMin = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+    val today = Schedule.isoWeekday(cal)
+    // 下次上课：从今天起找最近的一个时段
+    val next = remember(c.slots, today, nowMin / 10) {
+        (0..7).asSequence().flatMap { dd -> val wd = (today - 1 + dd) % 7 + 1
+            c.slots.filter { it.weekday == wd && (dd > 0 || (Schedule.startMin(it) ?: 0) > nowMin) }.sortedBy { it.start }.map { dd to it } }.firstOrNull()
+    }
     GlassScaffold(content = {
-        LazyColumn(Modifier.fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 150.dp)) {
+            item { TopInset(); Spacer(Modifier.height(50.dp)); BasicText("课程详情", Modifier.fillMaxWidth(), style = T.Large.copy(fontSize = 34.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)) }
             item {
-                Box(Modifier.fillMaxWidth()) {
-                    CourseCover(c, Modifier.fillMaxWidth().height(190.dp), radius = 0.dp)
-                    Box(Modifier.fillMaxWidth().padding(top = 110.dp).height(82.dp)
-                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(C.Bg.copy(alpha = 0f), C.Bg))))
-                    BasicText("更换封面", Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 10.dp).clip(Capsule())
-                        .background(Color.Black.copy(alpha = 0.28f)).clickable { Nav.push(Route.CoverPicker(id)) }
-                        .padding(horizontal = 12.dp, vertical = 5.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold))
-                }
-                Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)) {
-                    BasicText(c.name, style = T.Large.copy(fontSize = 30.sp))
-                    BasicText(listOf(c.teacher, Schedule.courseSlotLabel(c), c.room).filter { it.isNotBlank() }.joinToString(" · "), style = T.Sub)
+                // 精装书封面卡：科目色 + 封面图 + 课程信息
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth().height(150.dp)
+                    .shadow(12.dp, RoundedCornerShape(22.dp), ambientColor = base.copy(alpha = 0.5f), spotColor = base.copy(alpha = 0.5f))
+                    .clip(RoundedCornerShape(22.dp)).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(base.copy(alpha = 0.85f), base)))) {
+                    CourseCover(c, Modifier.padding(10.dp).size(110.dp, 130.dp), radius = 14.dp)
+                    Column(Modifier.padding(start = 132.dp, end = 14.dp, top = 14.dp)) {
+                        val done = lectures.count { it.status == 2 }
+                        BasicText("$done / ${maxOf(done, lectures.size)} 讲", Modifier.align(Alignment.End).clip(Capsule()).background(Color.White.copy(alpha = 0.9f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = T.Cap.copy(color = base, fontWeight = FontWeight.Bold))
+                        BasicText(c.name, style = T.Title.copy(color = Color.White, fontSize = 21.sp, lineHeight = 26.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        BasicText(listOf(c.teacher, c.room, c.weeks.ifBlank { "" }.let { if (it.isBlank()) "" else "$it 周" }).filter { it.isNotBlank() }.joinToString(" · "),
+                            style = T.Cap.copy(color = Color.White.copy(alpha = 0.85f)), maxLines = 1)
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            c.slots.take(2).forEach { sl ->
+                                BasicText(Schedule.slotLabel(sl), Modifier.clip(Capsule()).background(Color.White.copy(alpha = 0.22f)).padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = T.Cap.copy(color = Color.White, fontSize = 11.sp), maxLines = 1)
+                            }
+                        }
+                    }
                 }
             }
             item {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Btn("开始上课", { start(c) }, Modifier.weight(1f), icon = "mic", tint = C.Ink)
-                    Btn("编辑 / 课件", { Nav.draft.value = null; Nav.push(Route.EditCourse(id)) }, Modifier.weight(1f), icon = "file")
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("课前资料", style = T.Head); Spacer(Modifier.width(10.dp)); Box(Modifier.weight(1f).height(0.5.dp).background(C.Line))
+                }
+                Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PlainCard(Modifier.weight(1f).height(112.dp), radius = 20.dp, onClick = { Nav.push(Route.Materials(id)) }) {
+                        Icon(if (c.slideFile.isNotBlank()) "file" else "upload", if (c.slideFile.isNotBlank()) C.Red else C.Jade, 30.dp)
+                        Spacer(Modifier.height(8.dp))
+                        BasicText(c.slideFile.ifBlank { "上传 PPT / PDF" }, style = T.Btn.copy(fontSize = 13.5.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        BasicText(if (c.slides.isNotEmpty()) "${c.slides.size} 页" else "支持批量", style = T.Cap)
+                    }
+                    PlainCard(Modifier.weight(1f).height(112.dp), radius = 20.dp, onClick = { Nav.push(Route.Materials(id)) }) {
+                        Icon("tv", Color(0xFFFB7299), 30.dp)
+                        Spacer(Modifier.height(8.dp))
+                        val bv = c.source.takeIf { it.startsWith("bilibili:") }?.let { app.xuezhang.engine.Bili.srcBv(it) }
+                        BasicText(bv ?: "B站录播 / 本地音视频", style = T.Btn.copy(fontSize = 13.5.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        BasicText("BV 号 / 链接 / 手机录音", style = T.Cap, maxLines = 1)
+                    }
+                }
+            }
+            item {
+                Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("笔记", style = T.Head); Spacer(Modifier.width(10.dp)); Box(Modifier.weight(1f).height(0.5.dp).background(C.Line))
+                }
+                PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), radius = 20.dp, padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                    onClick = { Nav.libFilter.value = id; Store.updateSettings(Store.settings.value.copy(noteView = 0)); Nav.tabTo(2) }) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        lectures.takeLast(6).forEach { l ->
+                            Box(Modifier.padding(end = 3.dp).size((20 + BookLook.hash(l.id) % 8).dp, (44 + BookLook.hash(l.id) % 10).dp).clip(RoundedCornerShape(3.dp))
+                                .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(base.copy(alpha = 0.75f), base, base.copy(alpha = 0.85f)))))
+                        }
+                        if (lectures.isEmpty()) BasicText("还没有笔记，上一节课就会多一本", style = T.Sub)
+                        Spacer(Modifier.weight(1f))
+                        BasicText("${lectures.size} 本", style = T.Btn.copy(color = C.Sec)); Spacer(Modifier.width(6.dp)); Icon("chev", C.Ter, 14.dp)
+                    }
+                }
+            }
+            item {
+                Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("下次上课", style = T.Head); Spacer(Modifier.width(10.dp)); Box(Modifier.weight(1f).height(0.5.dp).background(C.Line))
+                }
+                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (next == null) BasicText("还没有设置上课时间", style = T.Sub)
+                    else {
+                        val (dd, sl) = next
+                        BasicText("${Schedule.WEEK[sl.weekday - 1]} ${Schedule.startMin(sl)?.let { Schedule.hm(it) } ?: "第${sl.start}节"}", style = T.Large.copy(fontSize = 30.sp))
+                        BasicText(if (dd == 0) "就在今天" else "还有 $dd 天", style = T.Sub)
+                    }
                 }
             }
             if (c.hotwords.isNotEmpty()) {
                 item { SectionLabel("热词 · 提升识别准确率") }
                 item { HotwordChips(c.hotwords, null) }
             }
-            if (c.slides.isNotEmpty()) {
-                item { SectionLabel("课件 · ${c.slides.size} 页有内容") }
-                item {
-                    PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-                        c.slides.take(12).forEachIndexed { i, s ->
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
-                                Tag("P.${s.page}", C.Blue); Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    BasicText(s.title, style = T.Label)
-                                    s.formulas.firstOrNull()?.let { MathBlock(it, T.Body.copy(fontSize = 13.sp), scale = 1f) }
-                                }
-                            }
-                            if (i < minOf(11, c.slides.lastIndex)) Divider()
-                        }
-                    }
-                }
-            }
-            item { SectionLabel("课堂笔记 · ${lectures.size} 节") }
-            item {
-                PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                    if (lectures.isEmpty()) Row2("还没有上过课", "")
-                    lectures.forEachIndexed { i, l ->
-                        LectureRow(l)
-                        if (i < lectures.lastIndex) Divider(16.dp)
-                    }
-                }
-            }
             item {
                 BasicText("删除这门课", Modifier.fillMaxWidth().padding(24.dp).clickable { Store.deleteCourse(id); Nav.pop() },
                     style = T.Label.copy(color = C.Red, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
             }
-            item { BottomSpacer() }
         }
-    }, overlay = { b -> BackBar(b) })
+    }, overlay = { b ->
+        BackBar(b)
+        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlassPill(b, "编辑课程", { Nav.draft.value = null; Nav.push(Route.EditCourse(id)) }, Modifier.weight(1f), height = 48.dp)
+            GlassPill(b, "更换封面（AI）", { Nav.push(Route.CoverPicker(id)) }, Modifier.weight(1.25f), height = 48.dp)
+            JadeButton("开始上课", { start(c) }, Modifier.weight(1.2f).height(48.dp), icon = "mic", color = C.Red)
+        }
+    })
 }
 
 @Composable
@@ -462,7 +512,7 @@ fun EditCourseScreen(id: String?) {
         val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { cur ->
             val i = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME); cur.moveToFirst(); if (i >= 0) cur.getString(i) else null
         } ?: "课件"
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             parsing = name
             try {
                 val r = app.xuezhang.engine.SlideImport.run(ctx, uri, name, Nav.draft.value!!.id)

@@ -72,17 +72,19 @@ val LocalBg = androidx.compose.runtime.staticCompositionLocalOf<Backdrop?> { nul
 @Composable
 fun Ambient(modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        drawRect(C.Bg)
+        val w = size.width; val h = size.height
+        // 象牙白 → 淡薰衣草的纵向渐变
+        drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(C.Bg, Color(0xFFF4EFF2), C.Bg2)))
         fun blob(cx: Float, cy: Float, r: Float, c: Color) = drawCircle(
             androidx.compose.ui.graphics.Brush.radialGradient(listOf(c, c.copy(alpha = 0f)), Offset(cx, cy), r), r, Offset(cx, cy))
-        val w = size.width; val h = size.height
-        blob(w * 0.05f, h * 0.10f, w * 0.75f, Color(0xFF8DB8FF).copy(alpha = 0.30f))
-        blob(w * 1.00f, h * 0.38f, w * 0.70f, Color(0xFFFFC08A).copy(alpha = 0.26f))
-        blob(w * 0.10f, h * 0.70f, w * 0.65f, Color(0xFF9EE6B8).copy(alpha = 0.22f))
-        blob(w * 0.90f, h * 0.95f, w * 0.70f, Color(0xFFC9B6FF).copy(alpha = 0.24f))
-        val step = 18.dp.toPx(); val dot = 1.dp.toPx()
-        var y = step / 2
-        while (y < h) { var x = step / 2; while (x < w) { drawCircle(Color(0x0F000000), dot, Offset(x, y)); x += step }; y += step }
+        blob(w * 0.05f, h * 0.08f, w * 0.80f, Color(0xFFFFF4DC).copy(alpha = 0.55f))
+        blob(w * 1.00f, h * 0.40f, w * 0.70f, Color(0xFFE7DDF7).copy(alpha = 0.50f))
+        blob(w * 0.05f, h * 0.72f, w * 0.65f, Color(0xFFD9F0E4).copy(alpha = 0.35f))
+        blob(w * 0.90f, h * 0.98f, w * 0.75f, Color(0xFFDCD3F5).copy(alpha = 0.45f))
+        // 纸张点阵纹理
+        val step = 16.dp.toPx(); val dot = 0.9f.dp.toPx()
+        var y = step / 2; var row = 0
+        while (y < h) { var x = step / 2 + if (row % 2 == 1) step / 2 else 0f; while (x < w) { drawCircle(Color(0x0D3B2A1A), dot, Offset(x, y)); x += step }; y += step; row++ }
     }
 }
 

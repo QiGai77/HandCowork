@@ -33,6 +33,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.xuezhang.data.Store
 import app.xuezhang.glass.LiquidBottomTab
 import app.xuezhang.glass.LiquidBottomTabs
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -58,6 +59,14 @@ sealed interface Route {
     data object Drive : Route
     data class Book(val lectureId: String) : Route
     data class Materials(val courseId: String) : Route
+    // 重构版 v0.0.1Ex 新页面
+    data class EndClass(val lectureId: String) : Route          // 11 下课
+    data class MindMap(val lectureId: String) : Route           // 17 概念图
+    data class Cards(val lectureId: String) : Route             // 18 复习卡
+    data class Ask(val lectureId: String, val q: String = "") : Route // 19 问学长
+    data class Share(val lectureId: String) : Route             // 20 分享导出
+    data object Models : Route                                   // 23 模型与供应商
+    data object GoogleConnect : Route                            // 26 Google 授权
 }
 
 object Nav {
@@ -70,6 +79,14 @@ object Nav {
     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     fun replace(r: Route) { if (stack.size > 1) stack[stack.lastIndex] = r else stack.add(r) }
     fun home() { while (stack.size > 1) stack.removeAt(stack.lastIndex) }
+    /** 打开某页：已经在栈里就退回到它，否则压栈。 */
+    fun open(r: Route) { val i = stack.lastIndexOf(r); if (i >= 0) { while (stack.size > i + 1) stack.removeAt(stack.lastIndex) } else push(r) }
+    /** 回到任务发起页（灵动岛点按）：Tabs 页还要切回当时的 tab。 */
+    fun resume(r: Route, tab: Int = 0) { if (r == Route.Tabs) { home(); this.tab.intValue = tab } else open(r) }
+    /** 切到某个底部 tab（id，不是位置）。 */
+    fun tabTo(id: Int) { home(); tab.intValue = id }
+    /** 笔记页：按课程筛选（课程详情 › 这门课的笔记）。 */
+    val libFilter = mutableStateOf<String?>(null)
 }
 
 sealed interface Sheet {
@@ -107,6 +124,7 @@ fun App() {
     }
     val appB = rememberLayerBackdrop()
     Box(Modifier.fillMaxSize().background(C.Bg)) {
+        Ambient(Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().layerBackdrop(appB)) {
         AnimatedContent(
             targetState = top,
@@ -137,6 +155,13 @@ fun App() {
                 Route.Drive -> DriveScreen()
                 is Route.Book -> BookScreen(r.lectureId)
                 is Route.Materials -> MaterialsScreen(r.courseId)
+                is Route.EndClass -> EndClassScreen(r.lectureId)
+                is Route.MindMap -> MindMapScreen(r.lectureId)
+                is Route.Cards -> CardsScreen(r.lectureId)
+                is Route.Ask -> AskScreen(r.lectureId, r.q)
+                is Route.Share -> ShareScreen(r.lectureId)
+                Route.Models -> ModelsScreen()
+                Route.GoogleConnect -> GoogleConnectScreen()
             }
         }
         }
@@ -147,10 +172,9 @@ fun App() {
     }
 }
 
-private val TABS = listOf("课程" to "book", "上课" to "mic", "笔记" to "note", "我的" to "person")
-
 @Composable
 fun TabsHost() {
+    val order = app.xuezhang.engine.NavOrder.parse(Store.settings.value.navOrder)
     GlassScaffold(
         content = {
             when (Nav.tab.intValue) {
@@ -166,17 +190,19 @@ fun TabsHost() {
                     .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 导航栏顺序可在「我的 › 底部导航栏」长按拖动调整；位置 ≠ tab id
                 LiquidBottomTabs(
-                    selectedTabIndex = { Nav.tab.intValue },
-                    onTabSelected = { Nav.tab.intValue = it },
+                    selectedTabIndex = { order.indexOf(Nav.tab.intValue).coerceAtLeast(0) },
+                    onTabSelected = { Nav.tab.intValue = order[it] },
                     backdrop = backdrop,
-                    tabsCount = TABS.size,
+                    tabsCount = order.size,
                     modifier = Modifier.weight(1f)
                 ) {
-                    TABS.forEachIndexed { i, (label, ic) ->
-                        LiquidBottomTab({ Nav.tab.intValue = i }) {
-                            Icon(ic, C.Ink, 24.dp)
-                            BasicText(label, style = TextStyle(C.Ink, 10.5.sp, FontWeight.SemiBold))
+                    order.forEach { id ->
+                        val on = Nav.tab.intValue == id
+                        LiquidBottomTab({ Nav.tab.intValue = id }) {
+                            Icon(app.xuezhang.engine.NavOrder.ICONS[id], if (on) C.Jade else C.Ink, 24.dp)
+                            BasicText(app.xuezhang.engine.NavOrder.LABELS[id], style = TextStyle(if (on) C.Jade else C.Ink, 10.5.sp, FontWeight.SemiBold))
                         }
                     }
                 }

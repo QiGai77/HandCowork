@@ -170,7 +170,7 @@ object Api {
 
     // ---------------- ChatGPT 账号：Codex Responses API ----------------
     /** 返回 (文本, 生成的图片 b64 列表)。 */
-    private fun codex(instructions: String, parts: List<Part>, model: String, onDelta: ((String) -> Unit)?, imageTool: JSONObject?, retried: Boolean = false): Pair<String, List<String>> {
+    private fun codex(instructions: String, parts: List<Part>, model: String, onDelta: ((String) -> Unit)?, imageTool: JSONObject?, retried: Boolean = false, forceTool: Boolean = true): Pair<String, List<String>> {
         val tok = Auth.gpt()
         val content = JSONArray().also { a ->
             parts.forEach { p ->
@@ -182,7 +182,7 @@ object Api {
             .put("input", JSONArray().put(JSONObject().put("type", "message").put("role", "user").put("content", content)))
             .put("stream", true).put("store", false).put("parallel_tool_calls", false)
             .put("tools", JSONArray().also { if (imageTool != null) it.put(imageTool) })
-            .put("tool_choice", "auto")
+            .put("tool_choice", if (imageTool != null && forceTool) JSONObject().put("type", "image_generation") else "auto")
         val req = Request.Builder().url(CODEX_URL)
             .header("Authorization", "Bearer ${tok.access}")
             .header("chatgpt-account-id", tok.accountId)
@@ -191,20 +191,20 @@ object Api {
             .header("session_id", java.util.UUID.randomUUID().toString())
             .header("Accept", "text/event-stream")
             .post(o.toString().toRequestBody(JSON)).build()
-        val sb = StringBuilder(); val imgs = mutableListOf<String>(); var err: String? = null
+        val sb = StringBuilder(); val reply = app.xuezhang.engine.ImageReply(); var err: String? = null
         http.newCall(req).execute().use { r ->
             quotaFromHeaders(r.headers)?.let { Auth.gptQuota.value = it }
-            if (r.code == 401 && !retried) { r.close(); Auth.refreshChatGPT(); return codex(instructions, parts, model, onDelta, imageTool, true) }
+            if (r.code == 401 && !retried) { r.close(); Auth.refreshChatGPT(); return codex(instructions, parts, model, onDelta, imageTool, true, forceTool) }
             if (!r.isSuccessful) {
                 val t = r.body?.string().orEmpty()
+                // 少数账号不支持强制 tool_choice：退回 auto 再试一次
+                if (r.code == 400 && imageTool != null && forceTool && t.contains("tool_choice")) return codex(instructions, parts, model, onDelta, imageTool, retried, false)
                 throw ApiException(if (r.code == 429) "ChatGPT 额度用完了，等额度重置后再试" else "ChatGPT 请求失败 ${r.code}：${t.take(160)}")
             }
             sse(r) { type, j ->
+                if (imageTool != null) reply.event(type, j)
                 when (type) {
                     "response.output_text.delta" -> { sb.append(j.optString("delta")); onDelta?.invoke(sb.toString()) }
-                    "response.output_item.done" -> j.optJSONObject("item")?.let { it ->
-                        if (it.optString("type") == "image_generation_call") it.optString("result").takeIf { r -> r.isNotBlank() }?.let { r -> imgs.add("b64:$r") }
-                    }
                     "response.failed", "error" -> err = (j.optJSONObject("response")?.optJSONObject("error") ?: j.optJSONObject("error") ?: j).optString("message").ifBlank { "生成失败" }
                     "response.completed" -> return@sse false
                 }
@@ -212,6 +212,8 @@ object Api {
             }
         }
         err?.let { throw ApiException("ChatGPT：$it") }
+        val imgs = if (imageTool != null) reply.result() else emptyList()
+        if (imageTool != null && imgs.isEmpty()) app.xuezhang.engine.Log.add("画图", "ChatGPT 没有返回图片 · $model", false, "原始回复：\n" + reply.rawForLog())
         return sb.toString() to imgs
     }
 
@@ -299,7 +301,7 @@ object Api {
                     runCatching { codex("Generate exactly one image with the image_generation tool. Do not reply with text.", listOf(Part(prompt)), s.llmModel, null, tool).second }
                         .onSuccess { r -> out.addAll(r) }.onFailure { e -> last = e }
                 }
-                if (out.isEmpty()) throw (last as? ApiException) ?: ApiException("没有返回图片")
+                if (out.isEmpty()) throw (last as? ApiException) ?: ApiException("没有返回图片（原始回复已写入「我的 › 日志」）")
                 return out
             }
             Mode.CLAUDE_KEY, Mode.CLAUDE_OAUTH -> throw ApiException("Claude 不能画图，请把大模型换成 OpenAI、SiliconFlow 等支持画图的服务商")
@@ -320,13 +322,10 @@ object Api {
             val t = r.body?.string().orEmpty()
             app.xuezhang.engine.Log.add("API", "画图 · ${s.imageModel} · HTTP ${r.code}", r.isSuccessful)
             if (!r.isSuccessful) throw ApiException("生成失败 ${r.code}：${t.take(120)}")
-            val j = runCatching { JSONObject(t) }.getOrElse { throw ApiException("图片接口返回格式不对") }
-            val arr = j.optJSONArray("images") ?: j.optJSONArray("data") ?: JSONArray()
-            val out = (0 until arr.length()).mapNotNull { i ->
-                val e = arr.optJSONObject(i) ?: return@mapNotNull null
-                e.optString("url").ifBlank { e.optString("b64_json").takeIf { it.isNotBlank() }?.let { "b64:$it" } }
-            }.filter { it.isNotBlank() }
-            if (out.isEmpty()) throw ApiException("没有返回图片")
+            val j = runCatching { JSONObject(t) }.getOrElse { throw ApiException("图片接口返回格式不对：" + app.xuezhang.engine.ImageReply.strip(t).take(160)) }
+            val out = app.xuezhang.engine.ImageReply().also { it.generations(j) }.result()
+            if (out.isEmpty()) app.xuezhang.engine.Log.add("画图", "没有返回图片 · ${s.imageModel}", false, "原始回复：\n" + app.xuezhang.engine.ImageReply.strip(t).take(1500))
+            if (out.isEmpty()) throw ApiException("没有返回图片（原始回复已写入「我的 › 日志」）")
             return out
         }
     }

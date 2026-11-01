@@ -192,7 +192,7 @@ fun MaterialsScreen(courseId: String) {
             val i = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME); cur.moveToFirst(); if (i >= 0) cur.getString(i) else null
         } ?: "课件"
         busy = true
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try {
                 val r = SlideImport.run(ctx, uri, name, courseId)
                 Store.course(courseId)?.let { cur -> Store.upsertCourse(cur.copy(hotwords = (cur.hotwords + r.hot).distinct(), slides = r.slides, slideFile = r.name, slidePath = r.local)) }

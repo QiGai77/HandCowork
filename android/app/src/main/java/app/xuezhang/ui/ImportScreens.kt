@@ -1,5 +1,7 @@
 package app.xuezhang.ui
 
+import androidx.compose.ui.graphics.Brush
+
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
@@ -141,29 +143,43 @@ fun KeyMissing(text: String) {
 }
 
 // =================== 导入课程表 ===================
+/** 课表识别的应用级状态（离开页面不丢）。 */
+object TtState {
+    val img = mutableStateOf<Bitmap?>(null)
+    val busy = mutableStateOf(false)
+    val err = mutableStateOf<String?>(null)
+    val groups = mutableStateOf<List<Schedule.Group>>(emptyList())
+    val picked = androidx.compose.runtime.mutableStateListOf<String>()
+    val raw = mutableStateOf("")
+}
+
 @Composable
 fun ImportTimetableScreen() {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var img by remember { mutableStateOf<Bitmap?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var err by remember { mutableStateOf<String?>(null) }
-    var groups by remember { mutableStateOf<List<Schedule.Group>>(emptyList()) }
-    val picked = remember { mutableStateListOf<String>() }
+    // 识别状态放在应用级对象里：离开页面再回来，识别继续、结果还在
+    var img by TtState.img
+    var busy by TtState.busy
+    var err by TtState.err
+    var groups by TtState.groups
+    val picked = TtState.picked
+    var raw by TtState.raw
+    var showRaw by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<String?>(null) }
     val camFile = remember { File(ctx.cacheDir, "timetable.jpg") }
 
     fun recognize(b: Bitmap) {
-        img = b; err = null; groups = emptyList(); picked.clear()
+        img = b; err = null; groups = emptyList(); picked.clear(); raw = ""
         if (!app.xuezhang.net.Api.llmReady()) { err = "nokey"; return }
         busy = true
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             val vm = Api.visionModelFor(Api.mode(), Store.settings.value.visionModel, Store.settings.value.llmModel)
-            val job = app.xuezhang.engine.AiProgress.start("timetable", "识别课程表")
+            val job = app.xuezhang.engine.AiProgress.start("timetable", "识别课程表", origin = Route.ImportTimetable)
             try {
                 job.phase("压缩图片", 0.08f, 800)
                 val jpg = withContext(Dispatchers.IO) { scaleDown(b, 2048).jpeg(85) }
                 job.phase("「看图」模型 $vm 读课表中", 0.88f, 35_000, "${jpg.size / 1024} KB")
                 val text = withContext(Dispatchers.IO) { Api.vision(Prompts.get("timetable"), "请识别这张课程表，严格按要求只输出 JSON。", jpg) }
+                raw = text
                 job.phase("整理课程与上课时段", 0.98f, 800)
                 val entries = runCatching { Schedule.parseTimetable(text) }.getOrElse { throw IllegalStateException("「看图」模型（$vm）的回答里没有课程列表 JSON。\n模型回答：" + text.trim().ifBlank { "（空）" }.take(300)) }
                 if (entries.isEmpty()) throw IllegalStateException("模型回答里的课程都缺少课程名。\n模型回答：" + text.trim().take(300))
@@ -220,11 +236,21 @@ fun ImportTimetableScreen() {
             when {
                 err == "nokey" -> item { KeyMissing("识别课程表要用「看图」模型（当前 ${Store.settings.value.visionModel}），先在「我的 › 大模型」填好 API Key 或登录账号。") }
                 err != null -> item {
-                    PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-                        BasicText("没认出来", style = T.Item)
-                        BasicText(err!!, style = T.Sub)
-                        Spacer(Modifier.height(8.dp))
-                        BasicText("重试", Modifier.clickable { img?.let { recognize(it) } }, style = T.Btn.copy(color = C.Blue))
+                    // 失败卡：HTTP 错误 / 模型原话 + 换模型重试 + 查看原始回复
+                    PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), radius = 24.dp) {
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Brush.verticalGradient(listOf(Color(0x22E5342B), Color(0x08E5342B)))).padding(14.dp)) {
+                            BasicText("没认出来 · " + err!!.lineSequence().first().take(120), style = T.Item.copy(fontSize = 15.sp, textAlign = TextAlign.Center), modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Btn("换模型重试", { Nav.push(Route.Models) }, Modifier.weight(1f), icon = "refresh")
+                            Btn("重试", { img?.let { recognize(it) } }, Modifier.weight(0.7f), tint = C.Jade)
+                        }
+                        val detail = raw.ifBlank { err!! }
+                        BasicText(if (showRaw) "收起原始回复" else "查看模型原始回复", Modifier.fillMaxWidth().clickable { showRaw = !showRaw }.padding(top = 10.dp),
+                            style = T.Btn.copy(color = C.Sec, fontSize = 13.sp, textAlign = TextAlign.Center))
+                        if (showRaw) BasicText(detail.take(3000), Modifier.padding(top = 6.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x0A000000)).padding(10.dp),
+                            style = T.Cap.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = C.Ink, fontSize = 11.sp))
                     }
                 }
             }
@@ -237,7 +263,29 @@ fun ImportTimetableScreen() {
                             CoverView(g.name, "", Modifier.size(50.dp, 34.dp), radius = 9.dp)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                BasicText(g.name, style = T.Btn.copy(fontSize = 14.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (editing == g.name) {
+                                    var t by remember(g.name) { mutableStateOf(g.name) }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Field(t, { t = it }, "课程名", Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(Color.White).padding(horizontal = 8.dp, vertical = 4.dp))
+                                        BasicText("完成", Modifier.clickable {
+                                            val nn = t.trim(); editing = null
+                                            if (nn.isNotBlank() && nn != g.name) {
+                                                TtState.groups.value = TtState.groups.value.map { if (it.name == g.name) it.copy(name = nn, entries = it.entries.map { e -> e.copy(name = nn) }) else it }
+                                                if (picked.remove(g.name)) picked.add(nn)
+                                            }
+                                        }.padding(start = 8.dp), style = T.Btn.copy(color = C.Jade, fontSize = 13.sp))
+                                    }
+                                } else Row(verticalAlignment = Alignment.CenterVertically) {
+                                    BasicText(g.name, Modifier.weight(1f, fill = false), style = T.Btn.copy(fontSize = 14.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.width(4.dp))
+                                    BasicText("✎", Modifier.clickable { editing = g.name }.padding(horizontal = 4.dp), style = T.Btn.copy(color = C.Sec, fontSize = 13.sp))
+                                    // 地点 / 时间缺失或节次异常：标为「不确定」，提醒核对
+                                    if (g.entries.any { it.weekday !in 1..7 || it.startSection <= 0 || it.room.isBlank() }) {
+                                        Spacer(Modifier.width(4.dp))
+                                        BasicText("⚠ ${if (g.entries.any { it.room.isBlank() }) "地点" else "时间"}不确定", Modifier.clip(Capsule()).background(Color(0xFFFFE7B8)).padding(horizontal = 6.dp, vertical = 1.dp),
+                                            style = T.Cap.copy(fontSize = 10.sp, color = Color(0xFF9A5B00), fontWeight = FontWeight.Bold), maxLines = 1)
+                                    }
+                                }
                                 BasicText(g.entries.joinToString("、") { e -> Schedule.slotLabel(app.xuezhang.data.Slot(e.weekday, e.startSection, e.endSection)) }
                                     + (g.entries.firstOrNull { it.room.isNotBlank() }?.let { " · ${it.room}" } ?: ""), style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 val extra = listOfNotNull(g.entries.firstOrNull { it.teacher.isNotBlank() }?.teacher, g.entries.firstOrNull { it.weeks.isNotBlank() }?.weeks?.let { "第 $it 周" }).joinToString(" · ")
@@ -267,6 +315,7 @@ fun ImportTimetableScreen() {
                     else Store.upsertCourse(nc)
                 }
                 Island.show("已导入 $n 门课", Island.Kind.Done)
+                TtState.img.value = null; TtState.groups.value = emptyList(); TtState.picked.clear(); TtState.err.value = null; TtState.raw.value = ""
                 Nav.pop()
             }, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp).fillMaxWidth(),
                 tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 54.dp)
@@ -360,7 +409,7 @@ fun CoverPickerScreen(target: String) {
                             val s = Store.settings.value
                             if (!app.xuezhang.net.Api.llmReady() && s.asrKey.isBlank()) { genErr = "先在「我的」里填写 API Key"; return@g }
                             gen = true; genErr = null
-                            scope.launch {
+                            app.xuezhang.engine.AppJobs.launch {
                                 try {
                                     val bmps = app.xuezhang.engine.AiProgress.run("cover", "AI 生成封面", doneMsg = "封面画好了") { job ->
                                         job.phase("${Store.settings.value.imageModel} 绘制中", 0.85f, 30_000, "2 张 · 16:9")
@@ -442,7 +491,7 @@ fun ImportBiliScreen(presetCourse: String? = null, mode: Int = 0) {
     fun lookup(text: String) {
         localAudio = null
         link = text; err = null
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             val t = withContext(Dispatchers.IO) { Bili.resolveShort(text) }
             val bv = Bili.parseBv(t) ?: run { if (text.isNotBlank()) err = "没找到 BV 号，粘贴完整的视频链接试试"; return@launch }
             loading = true
@@ -568,8 +617,14 @@ fun ImportBiliScreen(presetCourse: String? = null, mode: Int = 0) {
         when {
             i == null -> {}
             Bili.step.intValue == 5 && Bili.lectureId.value != null -> GlassPill(b, "查看笔记", { Bili.step.intValue = -1; Nav.replace(Route.Note(Bili.lectureId.value!!)) }, bottom, tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 52.dp)
-            running -> GlassPill(b, "后台处理中，完成后灵动岛提醒你", {}, bottom, color = C.Sec, height = 50.dp)
-            else -> GlassPill(b, if (Bili.error.value != null) "重试" else "开始导入", go@{
+            running -> GlassPill(b, "后台运行（完成后灵动岛提醒你）", { Nav.pop() }, bottom, height = 50.dp)
+            else -> Column(bottom) {
+              // 深度选取：简单 / 详细（与「我的 › 笔记详略」同一设置）
+              Row(Modifier.align(Alignment.CenterHorizontally).padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("深度选取", style = T.Btn.copy(fontSize = 14.sp)); Spacer(Modifier.width(10.dp))
+                LiquidSegmented(b, listOf("简单", "详细"), Store.settings.value.noteDepth, { Store.updateSettings(Store.settings.value.copy(noteDepth = it)); app.xuezhang.engine.Live.genDepth = it }, Modifier.width(140.dp), height = 38.dp)
+              }
+              GlassPill(b, if (Bili.error.value != null) "重试" else "导入并生成笔记", go@{
                 val pg = i.pages.getOrNull(page - 1) ?: Bili.Page(0, i.title, i.duration)
                 if (pg.cid == 0L && localAudio == null) { Island.show("这个视频没有分 P 信息", Island.Kind.Warn); return@go }
                 val c = courseId?.let { Store.course(it) } ?: run {
@@ -577,13 +632,41 @@ fun ImportBiliScreen(presetCourse: String? = null, mode: Int = 0) {
                     Course(name = p?.key ?: i.title.take(12), cover = "", colorIdx = Store.courses.size % C.course.size, source = "bilibili:${i.bvid}").also { Store.upsertCourse(it); courseId = it.id }
                 }
                 Bili.start(ctx, i, pg, c, slideUri, slideName, localAudio, isVideo)
-            }, bottom, tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 52.dp)
+            }, Modifier.fillMaxWidth(), tint = C.Blue.copy(alpha = 0.9f), color = Color.White, icon = "upload", height = 52.dp)
+            }
         }
     })
 }
 
 @Composable
 private fun BiliSteps() {
+    // 08 导入进度：大圆环 + 已耗时 / 预计剩余
+    aiJob("bili")?.takeIf { !it.finished.value && Bili.error.value == null }?.let { j ->
+        val f = j.fraction.floatValue
+        val el = j.elapsed.longValue / 1000
+        val remain = if (f > 0.03f) ((el / f) - el).toLong().coerceAtLeast(0) else -1
+        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Canvas(Modifier.size(210.dp)) {
+                val n = 60; val r = size.minDimension / 2
+                for (k in 0 until n) {
+                    val ang = Math.toRadians((k * 360.0 / n) - 90); val on = k < (f * n).toInt()
+                    val c0 = androidx.compose.ui.geometry.Offset(center.x + (r - 26f) * kotlin.math.cos(ang).toFloat(), center.y + (r - 26f) * kotlin.math.sin(ang).toFloat())
+                    val c1 = androidx.compose.ui.geometry.Offset(center.x + r * kotlin.math.cos(ang).toFloat(), center.y + r * kotlin.math.sin(ang).toFloat())
+                    drawLine(if (on) C.Jade else Color(0x1A2E8B6A), c0, c1, 9f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                }
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BasicText("已耗时 %02d:%02d".format(el / 60, el % 60), style = T.Sub)
+                BasicText("${(f * 100).toInt()}%", style = T.Large.copy(fontSize = 44.sp))
+                if (remain >= 0) BasicText("预计剩余 约 %02d:%02d".format(remain / 60, remain % 60), style = T.Sub)
+            }
+        }
+        BasicText(j.tip.value, Modifier.padding(horizontal = 24.dp, vertical = 4.dp).fillMaxWidth(), style = T.Cap.copy(textAlign = TextAlign.Center))
+    }
+    Bili.notice.value?.let { n ->
+        BasicText(n, Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0x22E5342B)).padding(12.dp),
+            style = T.Label.copy(fontSize = 13.5.sp, color = C.HlRed))
+    }
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), radius = 24.dp, padding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
         Bili.STEPS.forEachIndexed { i, n ->
             val st = Bili.step.intValue
@@ -626,16 +709,18 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "新" to "Google Drive 连接器：我的 › 云同步里授权 Google 账号，查看 Drive 文件夹和每个文件的上传进度",
-        "新" to "所有 AI 生成（笔记、课表、课件、导图、录播课、问答、封面）都有进度条 + 灵动岛进度 + 小彩蛋",
-        "新" to "笔记库变成书架：每门课一层，每节笔记一本书，点开翻页阅读",
-        "新" to "上课页改成课程卡组，左右滑选课；下面是「资料上传」和红色「开始上课」",
-        "新" to "录播视频（B 站 / 本地视频）的笔记每节配视频原画面截图，B 站截图可以换一张",
-        "新" to "OpenAI / ChatGPT 用户笔记生成后自动画 AI 导图",
-        "修" to "录音不足 30 秒视为误触，自动作废，不再生成空笔记",
-        "修" to "课件页面加载时显示微光占位，不再空白",
+        "新" to "重构版界面：象牙白渐变底、衬线标题、液态玻璃卡片和玉绿色强调，28 个页面全部按新设计串起来",
+        "新" to "首页变成液态玻璃课程表：一周课程一目了然，红线标出现在，点课程块进课程详情",
+        "新" to "底部导航栏可以在「我的」里长按拖动排序，第一个就是启动页（比如把「上课」放第一）",
+        "新" to "AI 任务离开页面也不中断：点灵动岛回到生成页；完成轻点查看、失败轻点重试；多个任务并排显示",
+        "新" to "AI 导图出图后停在灵动岛里：多张预览，选一张「应用」或「丢弃」",
+        "新" to "笔记有书架 / 列表两种模式；翻书阅读底部进度条可以拖动快速跳页；下课页选简单 / 详细",
+        "新" to "全局搜索覆盖笔记、课件页、课堂转写和复习卡；问学长改成整页对话，可追问",
+        "修" to "概念图「没有返回图片」：兼容更多出图返回格式，原始回复写入日志",
+        "修" to "B 站音轨下载 403：带 Referer / UA，自动切换备用线路和官方镜像重试",
+        "修" to "短课笔记「0 张卡」：复习卡不足时自动补生成",
     )
-    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7"
+    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.8"
     fun maybeShow(ctx: Context) {
         if (shownThisLaunch) return
         shownThisLaunch = true

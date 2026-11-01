@@ -5,3 +5,7 @@ local.properties
 *.iml
 .idea/
 captures/
+
+# 设计稿：单页大图和视频只留在本地（130MB），仓库只保留 README、指引图和 GIF
+design/redesign-v0.0.1Ex/screens/
+design/redesign-v0.0.1Ex/*.mp4

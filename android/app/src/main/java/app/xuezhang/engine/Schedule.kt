@@ -22,6 +22,29 @@ object Schedule {
 
     val WEEK = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
+    /**
+     * 课程表网格上「现在」的位置：以节次为行，返回 0 起的小数行号（第 1 节开始 = 0，第 1 节结束 = 1）。
+     * 课间按下一节开始处算；早于第 1 节或晚于最后一节返回 null（不画 now 线）。
+     */
+    fun gridPos(min: Int, sections: List<Pair<Int, Int>> = SECTIONS): Float? {
+        if (sections.isEmpty() || min < sections.first().first || min > sections.last().second) return null
+        sections.forEachIndexed { i, (a, b) ->
+            if (min in a..b) return i + (min - a).toFloat() / (b - a).coerceAtLeast(1)
+            val next = sections.getOrNull(i + 1)
+            if (next != null && min > b && min < next.first) return (i + 1).toFloat()
+        }
+        return null
+    }
+
+    /** 课程表显示到第几节：至少 10 节，有更晚的课就显示到那节。 */
+    fun gridRows(courses: List<Course>): Int = maxOf(10, courses.flatMap { it.slots }.maxOfOrNull { maxOf(it.start, it.end) } ?: 0).coerceAtMost(SECTIONS.size)
+
+    /** 显示哪些天：周一到周五，周末有课（或今天是周末）才加上周六 / 周日。 */
+    fun gridDays(courses: List<Course>, today: Int): List<Int> {
+        val wd = courses.flatMap { it.slots }.map { it.weekday }.toSet()
+        return (1..5).toList() + listOf(6, 7).filter { it in wd || it == today }.let { if (7 in it && 6 !in it) listOf(6) + it else it }
+    }
+
     fun hm(m: Int) = "%02d:%02d".format(m / 60, m % 60)
 
     fun startMin(s: Slot): Int? = SECTIONS.getOrNull(s.start - 1)?.first

@@ -142,7 +142,7 @@ fun SettingsTab() {
     fun runTest(target: Int) {
         if (MeState.testing.value >= 0) return
         MeState.testing.value = target; MeState.streamText.value = ""
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try {
                 if (target == 1) {
                     val b = withContext(Dispatchers.IO) { Api.benchChat("用一句话介绍变压器的工作原理，不超过 40 字。") { MeState.streamText.value = it } }
@@ -180,7 +180,7 @@ fun SettingsTab() {
                         BasicText(Providers.nameOf(s.llmBase), style = T.Btn.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(8.dp))
                         Box(Modifier.size(64.dp).shadow(6.dp, RoundedCornerShape(18.dp), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
-                            .clip(RoundedCornerShape(18.dp)).background(Color.White).clickable { Nav.sheet.value = Sheet.Model(1) }, contentAlignment = Alignment.Center) {
+                            .clip(RoundedCornerShape(18.dp)).background(Color.White).clickable { Nav.push(Route.Models) }, contentAlignment = Alignment.Center) {
                             ProviderLogo(s.llmBase, 36.dp)
                         }
                         Spacer(Modifier.height(8.dp))
@@ -194,8 +194,8 @@ fun SettingsTab() {
                     Spacer(Modifier.width(10.dp))
                     // 右：两个模型胶囊
                     Column(Modifier.weight(0.73f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ModelChip("mic", "语音识别", s.asrModel.substringAfterLast('/'), MeState.result[0], MeState.ok[0], MeState.testing.value == 0) { Nav.sheet.value = Sheet.Model(0) }
-                        ModelChip("box", "大模型", s.llmModel.substringAfterLast('/'), MeState.result[1], MeState.ok[1], MeState.testing.value == 1) { Nav.sheet.value = Sheet.Model(1) }
+                        ModelChip("mic", "语音识别", s.asrModel.substringAfterLast('/'), MeState.result[0], MeState.ok[0], MeState.testing.value == 0) { Nav.push(Route.Models) }
+                        ModelChip("box", "大模型", s.llmModel.substringAfterLast('/'), MeState.result[1], MeState.ok[1], MeState.testing.value == 1) { Nav.push(Route.Models) }
                     }
                 }
                 if ((s.llmAuth == "chatgpt" && app.xuezhang.net.Auth.chatgpt.value != null) || (s.llmAuth == "claude" && app.xuezhang.net.Auth.claude.value != null)) {
@@ -217,6 +217,8 @@ fun SettingsTab() {
                 }
             }
         }
+        item { SectionLabel("底部导航栏") }
+        item { NavOrderEditor() }
         item { SectionLabel("转写与理解") }
         item {
             PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = PaddingValues(0.dp)) {
@@ -225,6 +227,9 @@ fun SettingsTab() {
                 }); Divider(18.dp)
                 Row2("笔记详略", "", trailing = {
                     LiquidSegmented(items = listOf("简单", "详细"), selected = s.noteDepth, onSelect = { set(Store.settings.value.copy(noteDepth = it)) }, modifier = Modifier.width(132.dp), height = 36.dp)
+                }); Divider(18.dp)
+                Row2("笔记显示", "", trailing = {
+                    LiquidSegmented(items = listOf("列表", "书架"), selected = 1 - s.noteView, onSelect = { set(Store.settings.value.copy(noteView = 1 - it)) }, modifier = Modifier.width(132.dp), height = 36.dp)
                 }); Divider(18.dp)
                 Row2("模型提示词", "预览 / 修改", onClick = { Nav.push(Route.Prompts) }); Divider(18.dp)
                 Row2("上下文补全（需确认）", "", trailing = { Toggle(s.confirmFill) { set(Store.settings.value.copy(confirmFill = it)) } }); Divider(18.dp)
@@ -241,6 +246,7 @@ fun SettingsTab() {
         item { SectionLabel("账号与数据") }
         item {
             PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                Row2("Google Drive", if (app.xuezhang.net.Auth.google.value != null) "已连接" else "连接", onClick = { Nav.push(Route.Drive) }); Divider(18.dp)
                 Row2("云同步课程与笔记", if (s.lastSync > 0) "上次 " + java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(s.lastSync)) else "云盘 / WebDAV", onClick = { Nav.sheet.value = Sheet.Sync })
                 Divider(18.dp)
                 Row2("数据位置", "仅本机 · ${lectures.size} 节笔记")
@@ -282,9 +288,11 @@ private fun AccountCard(account: String, n: Int, ms: Long) {
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 BasicText(when { phone != null -> phone.replace(Regex("(\\d{3})\\d{4}(\\d{4})"), "$1****$2"); account == "guest" -> "本机用户"; else -> "登录 / 注册" }, style = T.Item.copy(fontSize = 19.sp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon("cloud", C.Sec, 14.dp); Spacer(Modifier.width(4.dp))
-                    BasicText((if (phone != null) "本机登录 · " else "未登录 · 仅存本机 · ") + "$n 节课 · " + "%.1f 小时".format(ms / 3_600_000.0),
+                // Google Drive 状态：点一下进云同步
+                val g = app.xuezhang.net.Auth.google.value
+                Row(Modifier.clip(Capsule()).clickable { Nav.push(Route.Drive) }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    DriveLogo(14.dp); Spacer(Modifier.width(4.dp))
+                    BasicText((if (g != null) "已连接 Google Drive" else "未连接 Google Drive") + " · " + "${Store.courses.size} 门课 · $n 本笔记",
                         style = T.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -349,7 +357,7 @@ fun ModelSheetContent(kind: Int) {
         if (auth == "key" && key.isBlank()) { err = "先填写 API Key"; return }
         if (auth != "key" && !logged) { list.clear(); err = null; return }
         loading = true; err = null
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try {
                 val r = withContext(Dispatchers.IO) { Api.models(base, key, if (kind == 0) "audio" else "text", auth) }
                 list.clear(); list.addAll(r)
@@ -558,7 +566,7 @@ private fun AccountBox(auth: String, onLogged: () -> Unit) {
                 BasicText("取消", Modifier.padding(top = 6.dp).clickable { Auth.cancelChatGPT() }, style = T.Btn.copy(fontSize = 13.sp, color = C.Sec))
             } else Btn("用 ChatGPT 账号登录", {
                 err = null
-                scope.launch {
+                app.xuezhang.engine.AppJobs.launch {
                     try { withContext(Dispatchers.IO) { Auth.loginChatGPT(ctx) }; Island.show("ChatGPT 账号已登录", Island.Kind.Done); onLogged() }
                     catch (e: Exception) { err = e.message }
                 }
@@ -578,7 +586,7 @@ private fun AccountBox(auth: String, onLogged: () -> Unit) {
                     Field(code, { code = it.trim() }, "粘贴授权码", Modifier.weight(1f), style = T.Label.copy(fontSize = 13.5.sp))
                     BasicText(if (busy) "登录中…" else "完成登录", Modifier.clickable(enabled = !busy && code.isNotBlank()) {
                         busy = true; err = null
-                        scope.launch {
+                        app.xuezhang.engine.AppJobs.launch {
                             try { withContext(Dispatchers.IO) { Auth.finishClaude(code) }; Island.show("Claude 账号已登录", Island.Kind.Done); waitingCode = false; onLogged() }
                             catch (e: Exception) { err = e.message } finally { busy = false }
                         }
@@ -612,7 +620,7 @@ fun QuotaBars(auth: String) {
     fun load() {
         if (busy) return
         busy = true; err = null
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             try { withContext(Dispatchers.IO) { if (auth == "chatgpt") Api.quotaChatGPT() else Api.quotaClaude() } }
             catch (e: Exception) { err = e.message } finally { busy = false }
         }

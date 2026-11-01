@@ -15,6 +15,7 @@ import app.xuezhang.data.Store
 import app.xuezhang.net.Api
 import app.xuezhang.net.ApiException
 import app.xuezhang.ui.Island
+import app.xuezhang.ui.Route
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.Request
@@ -80,19 +81,88 @@ object Bili {
 
     fun info(bvid: String): Info = parseInfo(get("https://api.bilibili.com/x/web-interface/view?bvid=$bvid"))
 
-    fun downloadAudio(bvid: String, cid: Long, out: File, onProgress: (Long, Long) -> Unit) {
-        val (url, _) = pickAudio(get("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&fnval=16&fnver=0&fourk=0"))
-            ?: throw ApiException("没有拿到音轨地址（可能需要登录或是付费视频）")
-        val req = Request.Builder().url(url).header("User-Agent", UA).header("Referer", "https://www.bilibili.com/video/$bvid").build()
+    private const val PC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+
+    /**
+     * playurl 返回里所有可用的音轨地址，按码率从低到高；每条依次是 baseUrl、backupUrl[]。
+     * 没有 dash 时退回 durl（mp4，带音轨）。之后再追加 PCDN/MCDN 地址换成官方 upos 镜像的候选。
+     */
+    fun audioCandidates(json: String): List<String> {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
+        if (o.optInt("code", -1) != 0) return emptyList()
+        val d = o.optJSONObject("data") ?: o.optJSONObject("result") ?: return emptyList()
+        val out = mutableListOf<String>()
+        fun urlsOf(x: JSONObject) {
+            x.optString("baseUrl").ifBlank { x.optString("base_url") }.ifBlank { x.optString("url") }.takeIf { it.isNotBlank() }?.let { out.add(it) }
+            listOf("backupUrl", "backup_url").forEach { k -> x.optJSONArray(k)?.let { a -> for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let { out.add(it) } } }
+        }
+        val audio = d.optJSONObject("dash")?.optJSONArray("audio")
+        if (audio != null && audio.length() > 0) {
+            (0 until audio.length()).mapNotNull { audio.optJSONObject(it) }.sortedBy { it.optLong("bandwidth") }.forEach { urlsOf(it) }
+        }
+        d.optJSONArray("durl")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { urlsOf(it) } }
+        val mirrors = out.flatMap { mirrorsOf(it) }
+        return (out + mirrors).distinct()
+    }
+
+    /** PCDN / MCDN（*.mcdn.bilivideo.cn、*.szbdyd.com、IP 直连）经常 403：换成官方 upos 镜像。 */
+    fun mirrorsOf(url: String): List<String> {
+        val u = runCatching { java.net.URI(url) }.getOrNull() ?: return emptyList()
+        val host = u.host ?: return emptyList()
+        val path = u.rawPath ?: return emptyList()
+        if (!path.contains("/upgcxcode/") && !path.contains("/v1/resource/")) return emptyList()
+        val p = if (path.contains("/upgcxcode/")) path.substring(path.indexOf("/upgcxcode/")) else path
+        val q = u.rawQuery?.let { "?$it" } ?: ""
+        return listOf("upos-sz-mirrorcos.bilivideo.com", "upos-sz-mirrorali.bilivideo.com", "upos-sz-mirror08c.bilivideo.com")
+            .filter { it != host }.map { "https://$it$p$q" }
+    }
+
+    private fun fetchTo(url: String, bvid: String, out: File, onProgress: (Long, Long) -> Unit): Int {
+        val req = Request.Builder().url(url)
+            .header("User-Agent", PC_UA)
+            .header("Referer", "https://www.bilibili.com")
+            .header("Origin", "https://www.bilibili.com")
+            .header("Accept", "*/*")
+            .header("Range", "bytes=0-")
+            .build()
         Api.http.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) throw ApiException("音轨下载失败 ${r.code}")
-            val body = r.body!!
+            if (!r.isSuccessful) return r.code
+            val body = r.body ?: return -1
             val total = body.contentLength()
             body.byteStream().use { ins -> out.outputStream().use { os ->
                 val buf = ByteArray(64 * 1024); var n: Int; var done = 0L
                 while (ins.read(buf).also { n = it } > 0) { os.write(buf, 0, n); done += n; onProgress(done, total) }
             } }
+            return if (out.length() > 0) 200 else -1
         }
+    }
+
+    /** 下载音轨：带 Referer / UA，逐个尝试 baseUrl、backupUrl、官方镜像，每条重试一次；全部失败再换 html5 mp4 线路。 */
+    fun downloadAudio(bvid: String, cid: Long, out: File, onProgress: (Long, Long) -> Unit, onSwitch: (String) -> Unit = {}) {
+        val apis = listOf(
+            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&fnval=16&fnver=0&fourk=0",
+            "https://api.bilibili.com/x/player/wbi/playurl?bvid=$bvid&cid=$cid&fnval=16&fnver=0&fourk=0",
+            "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&fnval=1&platform=html5&high_quality=1",
+        )
+        var lastCode = 0; var tried = 0
+        for ((ai, api) in apis.withIndex()) {
+            val cands = runCatching { audioCandidates(get(api)) }.getOrElse { Log.add("导入录播课", "playurl 失败：${it.message}", false); emptyList() }
+            for (u in cands) {
+                for (attempt in 0..1) {
+                    tried++
+                    val code = runCatching { fetchTo(u, bvid, out, onProgress) }.getOrElse { -1 }
+                    if (code == 200) {
+                        if (tried > 1) Log.ok("导入录播课", "音轨下载成功（第 $tried 次尝试 · ${runCatching { java.net.URI(u).host }.getOrNull()}）")
+                        return
+                    }
+                    lastCode = code
+                    Log.add("导入录播课", "音轨下载失败 $code · ${runCatching { java.net.URI(u).host }.getOrNull()} · 线路 ${ai + 1}", false)
+                    if (code == 403 || code == 404) { onSwitch("音轨下载失败（$code 错误）· 已自动切换备用线路重新下载"); break }
+                    Thread.sleep(600L)
+                }
+            }
+        }
+        throw ApiException(if (tried == 0) "没有拿到音轨地址（可能需要登录或是付费视频）" else "音轨下载失败 $lastCode（已尝试 $tried 次、全部备用线路）")
     }
 
     // ---------- 解码切片：m4a → 16k 单声道 wav，每片 chunkSec 秒 ----------
@@ -211,11 +281,14 @@ object Bili {
 
     private val EST = longArrayOf(30_000, 20_000, 120_000, 60_000, 120_000)
 
+    /** 导入过程中的提示条（例如音轨 403 已切换备用线路）。 */
+    val notice = mutableStateOf<String?>(null)
+
     fun start(ctx: Context, info: Info, page: Page, course: Course, slideUri: Uri?, slideName: String?, localAudio: Uri? = null, isVideo: Boolean = false) {
         if (running) return
-        error.value = null; step.intValue = 0; progress.floatValue = 0f; detail.value = ""
+        error.value = null; step.intValue = 0; progress.floatValue = 0f; detail.value = ""; notice.value = null
         val app = ctx.applicationContext
-        val aj = AiProgress.start("bili", "导入录播课")
+        val aj = AiProgress.start("bili", "导入录播课", origin = Route.ImportBili(course.id, if (localAudio != null) 1 else 0))
         job = Live.scope.launch {
             // 把分步状态同步到统一进度（灵动岛 + 进度条 + 小彩蛋）
             val mirror = launch {
@@ -240,10 +313,10 @@ object Bili {
                         progress.floatValue = 1f; detail.value = "%.1f MB".format(m4a.length() / 1e6)
                     }
                     subs != null -> { progress.floatValue = 1f; detail.value = "找到字幕 ${subs.size} 段，跳过语音识别"; Log.ok("导入录播课", "使用 B 站字幕 ${subs.size} 段") }
-                    else -> downloadAudio(info.bvid, page.cid, m4a) { d, t ->
+                    else -> downloadAudio(info.bvid, page.cid, m4a, { d, t ->
                         progress.floatValue = if (t > 0) d.toFloat() / t else 0f
                         detail.value = "%.1f / %.1f MB".format(d / 1e6, t.coerceAtLeast(d) / 1e6)
-                    }
+                    }) { msg -> notice.value = msg; detail.value = msg }
                 }
                 // 2 对齐课件
                 step.intValue = 1; progress.floatValue = 0f

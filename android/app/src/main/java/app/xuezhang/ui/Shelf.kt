@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloat
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -86,22 +88,28 @@ object BookLook {
 @Composable
 fun LibraryTab() {
     val lectures = Store.lectures
-    val groups = remember(lectures.toList(), Store.courses.toList()) {
-        val known = Store.courses.map { c -> c to lectures.filter { it.courseId == c.id }.sortedBy { it.date } }.filter { it.second.isNotEmpty() }
-        val orphan = lectures.filter { l -> Store.courses.none { it.id == l.courseId } }
+    val filter = Nav.libFilter.value
+    val view = Store.settings.value.noteView
+    val groups = remember(lectures.toList(), Store.courses.toList(), filter) {
+        val known = Store.courses.filter { filter == null || it.id == filter }.map { c -> c to lectures.filter { it.courseId == c.id }.sortedBy { it.date } }.filter { it.second.isNotEmpty() }
+        val orphan = if (filter != null) emptyList() else lectures.filter { l -> Store.courses.none { it.id == l.courseId } }
         known.map { Triple(it.first.id, it.first as Course?, it.second) } + if (orphan.isNotEmpty()) listOf(Triple("orphan", null as Course?, orphan)) else emptyList()
     }
     LazyColumn(Modifier.fillMaxWidth()) {
         item {
             TopInset()
-            LargeHeader("${groups.size} 层书架 · ${lectures.size} 本笔记 · ${lectures.sumOf { it.cards.size }} 张复习卡", "笔记")
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(44.dp).glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.5f)).clip(Capsule())
-                .clickable { Nav.push(Route.Search) }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon("search", C.Sec, 18.dp); Spacer(Modifier.width(8.dp)); BasicText("搜索笔记、公式或老师原话", style = T.Label.copy(color = C.Sec))
-            }
+            SerifHeader("笔记", "${Store.courses.count { c -> lectures.any { it.courseId == c.id } }} 门课 · ${lectures.size} 本笔记") { NoteViewToggle() }
+        }
+        if (view == 1 || filter != null) item {
+            // 列表模式（或从课程详情进来）：按课程筛选
+            CourseFilterChips(filter) { Nav.libFilter.value = it }
+            Spacer(Modifier.height(6.dp))
         }
         if (lectures.isEmpty()) item { EmptyHint("书架还是空的", "上一节课，就会多一本笔记") }
-        groups.forEach { (key, c, ls) -> item(key = "shelf_$key") { Bookshelf(c?.name ?: "未分类", c, ls) } }
+        if (view == 1) {
+            val ls = lectures.filter { filter == null || it.courseId == filter }.sortedByDescending { it.date }
+            items(ls, key = { "row_" + it.id }) { l -> LectureListRow(l) }
+        } else groups.forEach { (key, c, ls) -> item(key = "shelf_$key") { Bookshelf(c?.name ?: "未分类", c, ls) } }
         item { BottomSpacer() }
     }
 }
@@ -111,24 +119,38 @@ private fun Bookshelf(name: String, course: Course?, books: List<Lecture>) {
     val base = course?.let { C.course[it.colorIdx % C.course.size] } ?: C.FillGray
     Column(Modifier.padding(top = 18.dp)) {
         Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(Capsule()).background(base)); Spacer(Modifier.width(8.dp))
-            BasicText(name, Modifier.weight(1f), style = T.Item, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.size(9.dp).clip(Capsule()).background(base)); Spacer(Modifier.width(8.dp))
+            BasicText(name, Modifier.weight(1f).then(if (course != null) Modifier.clickable { Nav.push(Route.CourseDetail(course.id)) } else Modifier),
+                style = T.Item.copy(color = base, fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             BasicText("${books.size} 本", style = T.Sub)
-            if (course != null) { Spacer(Modifier.width(10.dp)); BasicText("课程", Modifier.clickable { Nav.push(Route.CourseDetail(course.id)) }, style = T.Btn.copy(fontSize = 13.sp, color = C.Blue)) }
         }
         Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth()) {
-            // 书架背板
-            Box(Modifier.padding(horizontal = 12.dp).fillMaxWidth().height(196.dp).clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFFEFE6DA), Color(0xFFE2D3C0)))))
-            LazyRow(Modifier.fillMaxWidth().height(196.dp), contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(5.dp),
+        Row(Modifier.fillMaxWidth().height(190.dp).padding(end = 18.dp), verticalAlignment = Alignment.Bottom) {
+            // 书脊（竖排标题、烫金线、科目配色）
+            LazyRow(Modifier.weight(1f).height(190.dp), contentPadding = PaddingValues(start = 24.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.Bottom) {
                 items(books, key = { it.id }) { l -> BookSpine(l, course, base) }
             }
+            // 最新一本正面朝外的精装封面
+            books.lastOrNull()?.let { l ->
+                Box(Modifier.size(104.dp, 150.dp).shadow(10.dp, RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp, topStart = 3.dp, bottomStart = 3.dp))
+                    .clip(RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp, topStart = 3.dp, bottomStart = 3.dp))
+                    .background(Brush.horizontalGradient(listOf(lerp(base, Color.Black, 0.25f), base, lerp(base, Color.White, 0.08f))))
+                    .clickable { Nav.push(if (l.status == 1) Route.Generating(l.id) else Route.Book(l.id)) }) {
+                    Box(Modifier.padding(start = 7.dp).width(1.5.dp).fillMaxHeight().background(Color(0x44FFFFFF)))
+                    Box(Modifier.align(Alignment.Center).size(46.dp, 36.dp).border(1.5.dp, Color(0xCCF3D27A), RoundedCornerShape(4.dp)), contentAlignment = Alignment.Center) {
+                        BasicText((course?.name ?: l.title).take(1), style = T.Head.copy(color = Color(0xFFF3D27A)))
+                    }
+                    BasicText(BookLook.spineTitle(l.title, course?.name.orEmpty(), 10), Modifier.align(Alignment.BottomCenter).padding(8.dp),
+                        style = T.Cap.copy(color = Color.White.copy(alpha = 0.9f), fontSize = 10.sp, textAlign = TextAlign.Center), maxLines = 2)
+                    // 书签丝带
+                    Box(Modifier.align(Alignment.BottomCenter).offset(y = 6.dp).size(8.dp, 16.dp).background(lerp(base, Color.Black, 0.35f)))
+                }
+            }
         }
-        // 木板
-        Box(Modifier.padding(horizontal = 6.dp).fillMaxWidth().height(14.dp).shadow(6.dp, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFFB98A5E), Color(0xFF8C6239)))))
+        // 玻璃隔板
+        Box(Modifier.padding(horizontal = 14.dp).fillMaxWidth().height(12.dp).shadow(8.dp, RoundedCornerShape(6.dp), ambientColor = Color(0x33000000), spotColor = Color(0x33000000))
+            .clip(RoundedCornerShape(6.dp)).background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0xFFE9E4EE)))).border(0.6.dp, Color.White, RoundedCornerShape(6.dp)))
     }
 }
 
@@ -183,8 +205,18 @@ fun BookScreen(id: String) {
     val state = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val base = course?.let { C.course[it.colorIdx % C.course.size] } ?: C.Blue
-    Box(Modifier.fillMaxSize().background(Color(0xFF3A3532))) {
-        HorizontalPager(state, Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 58.dp, bottom = 8.dp)
+    fun label(p: Int): String = when (val pg = pages.getOrNull(p)) {
+        is BookPage.Sec -> "第 ${pg.i + 1} 节 · ${p + 1}/${pages.size}"
+        BookPage.Cover -> "封面 · 1/${pages.size}"
+        BookPage.Toc -> "目录 · ${p + 1}/${pages.size}"
+        else -> "${p + 1}/${pages.size}"
+    }
+    Box(Modifier.fillMaxSize()) {
+        // 精装书壳：科目色硬封面，书页叠在上面
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 62.dp, bottom = 118.dp).windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 6.dp).shadow(14.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp))
+            .background(Brush.horizontalGradient(listOf(lerp(base, Color.Black, 0.25f), base, lerp(base, Color.Black, 0.1f)))))
+        HorizontalPager(state, Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 68.dp, bottom = 124.dp)
             .windowInsetsPadding(WindowInsets.navigationBars), beyondViewportPageCount = 1) { p ->
             // 翻页：当前页以左侧书脊为轴向外翻（3D 旋转 + 阴影），下一页留在原地被逐渐露出
             val off = (state.currentPage - p) + state.currentPageOffsetFraction
@@ -201,12 +233,18 @@ fun BookScreen(id: String) {
                     }
                     .shadow(10.dp, RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp, topStart = 4.dp, bottomStart = 4.dp))
                     .clip(RoundedCornerShape(topEnd = 18.dp, bottomEnd = 18.dp, topStart = 4.dp, bottomStart = 4.dp))
-                    .background(Color(0xFFFFFCF5))
+                    .background(Color(0xFFFFFAEE))
                     .drawWithContent {
                         drawContent()
                         // 书脊处的折痕阴影
                         drawRect(Brush.horizontalGradient(listOf(Color(0x33000000), Color.Transparent), endX = 18.dp.toPx()))
-                        if (off > 0f) drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f * off.coerceAtMost(1f))), startX = size.width * 0.3f))
+                        if (off > 0f) {
+                            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f * off.coerceAtMost(1f))), startX = size.width * 0.3f))
+                            // 卷页近似：右下角折起的纸背 + 高光（真实卷曲物理没有做，用渐变三角近似）
+                            val k = off.coerceIn(0f, 1f); val fw = size.width * (0.18f + 0.5f * k); val fh = size.height * (0.12f + 0.4f * k)
+                            val path = androidx.compose.ui.graphics.Path().apply { moveTo(size.width, size.height - fh); lineTo(size.width - fw, size.height); lineTo(size.width, size.height); close() }
+                            drawPath(path, Brush.linearGradient(listOf(Color(0xFFF3E9D2), Color(0xFFD9CBB0), Color(0xFFFFFAEE)), start = androidx.compose.ui.geometry.Offset(size.width - fw, size.height), end = androidx.compose.ui.geometry.Offset(size.width, size.height - fh)))
+                        }
                         if (off < 0f) drawRect(Color.Black.copy(alpha = 0.32f * (-off).coerceAtMost(1f)))
                     }
                 ) {
@@ -262,13 +300,29 @@ fun BookScreen(id: String) {
         }
         // 顶栏
         Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.16f)).clickable { Nav.pop() }, contentAlignment = Alignment.Center) { Icon("back", Color.White, 20.dp, 2.2f) }
-            Spacer(Modifier.width(10.dp))
-            BasicText(l.title, Modifier.weight(1f), style = T.Btn.copy(color = Color.White), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BasicText("${state.currentPage + 1} / ${pages.size}", style = T.Cap.copy(color = Color.White.copy(alpha = 0.7f)))
-            Spacer(Modifier.width(10.dp))
-            BasicText("完整笔记", Modifier.clip(Capsule()).background(Color.White.copy(alpha = 0.16f)).clickable { Nav.replace(Route.Note(id)) }
-                .padding(horizontal = 12.dp, vertical = 7.dp), style = T.Btn.copy(color = Color.White, fontSize = 13.sp))
+            Box(Modifier.size(44.dp).shadow(4.dp, Capsule()).clip(Capsule()).background(Color.White.copy(alpha = 0.85f)).clickable { Nav.pop() }, contentAlignment = Alignment.Center) { Icon("back", C.Ink, 20.dp, 2.2f) }
+            BasicText(listOfNotNull(course?.name?.take(6), l.title).joinToString(" · "), Modifier.weight(1f).padding(horizontal = 10.dp), style = T.Item.copy(fontSize = 17.sp, textAlign = TextAlign.Center), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText("完整笔记", Modifier.clip(Capsule()).background(Color.White.copy(alpha = 0.85f)).clickable { Nav.replace(Route.Note(id)) }
+                .padding(horizontal = 12.dp, vertical = 8.dp), style = T.Btn.copy(fontSize = 13.sp))
+        }
+        // 底部：可拖动跳页的进度条 + 目录 / 复习卡 / 导图
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 16.dp, vertical = 6.dp)) {
+            PageScrubber(state.currentPage, pages.size, ::label, thumb = { p ->
+                when (val pg = pages.getOrNull(p)) {
+                    is BookPage.Sec -> {
+                        val sec = sections[pg.i]
+                        val sp = course?.slidePath.orEmpty()
+                        if (sec.pages.isNotEmpty() && sp.isNotBlank() && java.io.File(sp).exists()) SlideThumb(sp, sec.pages.first(), widthPx = 320)
+                        else BasicText(sec.title.ifBlank { sec.body.take(40) }, Modifier.padding(6.dp), style = T.Cap.copy(fontSize = 10.sp, color = C.Ink), maxLines = 4)
+                    }
+                    else -> BasicText(label(p), Modifier.padding(6.dp), style = T.Cap.copy(fontSize = 10.sp, color = C.Ink))
+                }
+            }) { p -> scope.launch { state.scrollToPage(p) } }
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                DockItem("list", "目录") { val t = pages.indexOf(BookPage.Toc).takeIf { it >= 0 } ?: 0; scope.launch { state.animateScrollToPage(t) } }
+                DockItem("clipboard", "复习卡") { Nav.push(Route.Cards(id)) }
+                DockItem("grid", "导图") { Nav.push(Route.MindMap(id)) }
+            }
         }
     }
 }

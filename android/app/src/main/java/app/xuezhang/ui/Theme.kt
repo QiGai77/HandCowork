@@ -9,13 +9,20 @@ import androidx.compose.ui.unit.sp
 import app.xuezhang.R
 
 object C {
-    val Bg = Color(0xFFF2F2F7)
+    // 重构版 v0.0.1Ex：象牙白 → 淡薰衣草渐变底，玉绿色强调
+    val Bg = Color(0xFFF7F3EC)
+    val Bg2 = Color(0xFFEEEAF6)
+    val Jade = Color(0xFF2E8B6A)
+    val JadeDeep = Color(0xFF1F6B50)
+    val JadeSoft = Color(0xFFDDF0E6)
     val Card = Color.White
     val Ink = Color(0xFF1D1D1F)
     val Sec = Color(0xFF8A8A8E)
     val Ter = Color(0xFFC7C7CC)
     val Line = Color(0x14000000)
-    val Blue = Color(0xFF0A72E8)
+    /** 强调色（历史上叫 Blue，重构版改为玉绿）。 */
+    val Blue = Jade
+    val Navy = Color(0xFF2F4E7E)
     val Red = Color(0xFFE5342B)
     val Orange = Color(0xFFE8770F)
     val Green = Color(0xFF2DA44E)
@@ -27,7 +34,8 @@ object C {
     val HlOrangeBg = Color(0xFFFFEBD3); val HlOrange = Color(0xFFB25000)
     val FillGray = Color(0xFF8E8E93)
 
-    val course = listOf(Blue, Orange, Green, Red, Purple, Color(0xFF5856D6), Color(0xFF30B0C7))
+    /** 科目配色：玉绿、藏青、赭红、橙、玫瑰、紫、青。 */
+    val course = listOf(Color(0xFF2F7D5B), Color(0xFF2F4E7E), Color(0xFFB0553A), Color(0xFFE0872E), Color(0xFFC9667A), Color(0xFF6E5BA8), Color(0xFF2E8A94))
 }
 
 val Serif = FontFamily(

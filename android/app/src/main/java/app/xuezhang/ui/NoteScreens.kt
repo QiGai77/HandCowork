@@ -192,8 +192,11 @@ fun NoteScreen(id: String) {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GlassCircle(b, "back", { Nav.pop() })
-                Spacer(Modifier.weight(1f))
-                GlassCircle(b, "share", { shareMenu = !shareMenu; menu = false })
+                BasicText(listOfNotNull(course?.name?.take(6), l.title).joinToString(" · "), Modifier.weight(1f).padding(horizontal = 10.dp),
+                    style = T.Item.copy(fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                GlassCircle(b, "book", { Nav.replace(Route.Book(id)) })
+                Spacer(Modifier.width(10.dp))
+                GlassCircle(b, "share", { Nav.push(Route.Share(id)) })
                 Spacer(Modifier.width(10.dp))
                 GlassCircle(b, "more", { menu = !menu; shareMenu = false })
             }
@@ -205,7 +208,7 @@ fun NoteScreen(id: String) {
                         MenuItem(f.label, ic) {
                             if (sharing) return@MenuItem
                             sharing = true
-                            scope.launch {
+                            app.xuezhang.engine.AppJobs.launch {
                                 try {
                                     val lec = Store.lecture(id) ?: return@launch
                                     val intent = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.xuezhang.engine.NoteExport.export(ctx, lec, f) }
@@ -227,20 +230,15 @@ fun NoteScreen(id: String) {
                 }
             }
         }
+        // 底部：问学长 / 复习卡 / 导图
         Row(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).imePadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp).height(50.dp)
-                .glass(b, Capsule(), surface = Color.White.copy(alpha = 0.72f)).padding(start = 18.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon("sparkle", C.Blue, 17.dp)
-            Spacer(Modifier.width(10.dp))
-            Field(ask, { ask = it }, "问学长：这一节哪里最容易考？", Modifier.weight(1f), style = T.Label.copy(fontSize = 14.5.sp))
-            if (ask.isNotBlank()) BasicText("发送", Modifier.clip(Capsule()).background(C.Blue).clickable {
-                Nav.sheet.value = Sheet.Answer(ask.trim(), id); ask = ""
-            }.padding(horizontal = 14.dp, vertical = 8.dp), style = T.Btn.copy(color = Color.White, fontSize = 13.5.sp))
-            else BasicText("提问", Modifier.clip(Capsule()).clickable { Nav.sheet.value = Sheet.Answer("这一节哪里最容易考？", id) }
-                .padding(horizontal = 12.dp, vertical = 8.dp), style = T.Btn.copy(color = C.Blue, fontSize = 13.5.sp))
+            GlassPill(b, "问学长", { Nav.push(Route.Ask(id)) }, Modifier.weight(1f), icon = "chat", height = 50.dp)
+            GlassPill(b, "复习卡", { Nav.push(Route.Cards(id)) }, Modifier.weight(1f), icon = "clipboard", height = 50.dp)
+            GlassPill(b, "导图", { Nav.push(Route.MindMap(id)) }, Modifier.weight(1f), icon = "grid", height = 50.dp)
         }
     })
 }
@@ -447,30 +445,85 @@ fun AnswerSheetContent(s: Sheet.Answer) {
     Btn("知道了", { Nav.sheet.value = null }, Modifier.fillMaxWidth(), icon = "check", tint = C.Blue)
 }
 
-// =================== 搜索 ===================
+// =================== 21 全局搜索：笔记 / 课件 / 转写 / 复习卡 ===================
+object SearchState { val recent = androidx.compose.runtime.mutableStateListOf<String>() }
+
 @Composable
 fun SearchScreen() {
     var q by remember { mutableStateOf("") }
-    data class Hit(val l: Lecture, val where: String, val text: String)
-    val hits = remember(q, Store.lectures.size) {
-        if (q.isBlank()) emptyList() else Store.lectures.flatMap { l ->
-            val out = mutableListOf<Hit>()
-            l.notes.split(Regex("\n\\s*\n")).filter { it.contains(q, true) }.forEach { out.add(Hit(l, "笔记", it)) }
-            l.segments.filter { it.voice.contains(q, true) || it.senior.contains(q, true) }.forEach { out.add(Hit(l, if (it.page > 0) "P.${it.page}" else Live.fmt(it.startMs), it.voice)) }
-            l.cards.filter { it.q.contains(q, true) || it.a.contains(q, true) }.forEach { out.add(Hit(l, "复习卡", it.q + "\n" + it.a)) }
-            out
-        }.take(60)
+    var cat by remember { mutableIntStateOf(0) } // 0 全部 1 笔记 2 课件 3 转写 4 复习卡
+    data class Hit(val kind: Int, val l: Lecture?, val title: String, val where: String, val text: String, val open: () -> Unit)
+    val hits = remember(q, Store.lectures.size, Store.courses.size) {
+        if (q.isBlank()) emptyList() else buildList {
+            Store.lectures.forEach { l ->
+                val secs = l.sections.ifEmpty { l.notes.split(Regex("\n\\s*\n")).map { app.xuezhang.data.NoteSection("", emptyList(), it) } }
+                secs.filter { it.title.contains(q, true) || it.body.contains(q, true) }.take(3).forEach { add(Hit(1, l, l.title, it.title.ifBlank { "笔记" }, it.body, { Nav.push(Route.Note(l.id)) })) }
+                l.segments.filter { it.voice.contains(q, true) || it.senior.contains(q, true) }.take(4).forEach { sg -> add(Hit(3, l, l.title, Live.fmt(sg.startMs), sg.voice.ifBlank { sg.senior }, { Nav.push(Route.Note(l.id)) })) }
+                l.cards.filter { it.q.contains(q, true) || it.a.contains(q, true) }.take(3).forEach { add(Hit(4, l, "复习卡 · ${l.title}", it.tag, it.q + "\n" + it.a, { Nav.push(Route.Cards(l.id)) })) }
+            }
+            Store.courses.forEach { c ->
+                c.slides.filter { it.title.contains(q, true) || it.text.contains(q, true) || it.formulas.any { f -> f.contains(q, true) } }.take(6).forEach { sl ->
+                    add(Hit(2, null, c.name, "第 ${sl.page} 页", sl.title + "\n" + sl.text.take(160), {
+                        val sp = c.slidePath
+                        if (sp.isNotBlank() && java.io.File(sp).exists()) SlideViewer.open.value = Triple(sp, sl.page, SlideImages.pageCount(sp)) else Nav.push(Route.CourseDetail(c.id))
+                    }))
+                }
+            }
+        }.take(120)
     }
+    val shown = hits.filter { cat == 0 || it.kind == cat }
+    fun keep(term: String) { if (term.isNotBlank()) { SearchState.recent.remove(term); SearchState.recent.add(0, term); while (SearchState.recent.size > 6) SearchState.recent.removeAt(SearchState.recent.lastIndex) } }
     GlassScaffold(content = {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
-            item { TopInset(); LargeHeader(null, "搜索"); Spacer(Modifier.height(56.dp)) }
-            if (q.isNotBlank()) item { BasicText("找到 ${hits.size} 处", Modifier.padding(horizontal = 20.dp, vertical = 6.dp), style = T.Sub) }
-            hits.forEach { h ->
-                item {
-                    PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), onClick = { Nav.push(Route.Note(h.l.id)) }) {
-                        BasicText("${h.l.title} · ${h.where}", style = T.Item.copy(fontSize = 14.sp, color = C.Blue))
-                        Spacer(Modifier.height(4.dp))
-                        RichText(h.text.take(300), style = T.Body.copy(fontSize = 14.5.sp))
+            item { TopInset(); Spacer(Modifier.height(118.dp)) }
+            if (SearchState.recent.isNotEmpty()) item {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BasicText("最近搜索：", style = T.Sub)
+                    SearchState.recent.take(4).forEach { r ->
+                        BasicText(r, Modifier.padding(end = 6.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.7f)).clickable { q = r }.padding(horizontal = 10.dp, vertical = 4.dp), style = T.Btn.copy(fontSize = 13.sp))
+                    }
+                }
+            }
+            item {
+                androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                    val names = listOf("全部", "笔记", "课件", "转写", "复习卡")
+                    items(names.size) { i ->
+                        val n = if (i == 0) hits.size else hits.count { it.kind == i }
+                        BasicText(names[i] + if (q.isNotBlank()) " $n" else "", Modifier.clip(Capsule()).background(if (cat == i) C.Jade else Color.White.copy(alpha = 0.7f)).clickable { cat = i }
+                            .padding(horizontal = 14.dp, vertical = 7.dp), style = T.Btn.copy(fontSize = 13.5.sp, color = if (cat == i) Color.White else C.Ink))
+                    }
+                }
+            }
+            if (q.isNotBlank() && shown.isEmpty()) item { EmptyHint("没有找到「$q」", "试试公式名、老师原话或课件标题") }
+            listOf(1 to "笔记", 2 to "课件页", 3 to "课堂转写", 4 to "复习卡").forEach { (k, label) ->
+                val group = shown.filter { it.kind == k }
+                if (group.isNotEmpty()) {
+                    item { SectionLabel(label) }
+                    items(group.size) { i ->
+                        val h = group[i]
+                        PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth(), radius = 20.dp, onClick = { keep(q); h.open() }) {
+                            Row {
+                                if (k == 1 || k == 4) { MiniBook(h.l?.let { Store.course(it.courseId) }); Spacer(Modifier.width(12.dp)) }
+                                if (k == 3) { BasicText(h.where, Modifier.padding(end = 10.dp).clip(RoundedCornerShape(8.dp)).background(Color.White).padding(horizontal = 8.dp, vertical = 4.dp), style = T.Btn.copy(fontSize = 13.sp)) }
+                                Column(Modifier.weight(1f)) {
+                                    BasicText(if (k == 3) h.title else "${h.title} · ${h.where}", style = T.Item.copy(fontSize = 14.5.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.height(3.dp))
+                                    val plain = h.text.replace(Regex("```[\\s\\S]*?```"), "").replace(Regex("\\[[a-z]:([^\\]]*)]"), "$1").replace(Regex("\\s+"), " ")
+                                    val idx = plain.indexOf(q, ignoreCase = true).coerceAtLeast(0)
+                                    val snip = plain.substring((idx - 30).coerceAtLeast(0)).take(120)
+                                    BasicText(androidx.compose.ui.text.buildAnnotatedString {
+                                        var i0 = 0
+                                        while (true) {
+                                            val j = snip.indexOf(q, i0, ignoreCase = true)
+                                            if (j < 0 || q.isBlank()) { append(snip.substring(i0)); break }
+                                            append(snip.substring(i0, j))
+                                            pushStyle(androidx.compose.ui.text.SpanStyle(color = C.JadeDeep, background = C.JadeSoft, fontWeight = FontWeight.SemiBold)); append(snip.substring(j, j + q.length)); pop()
+                                            i0 = j + q.length
+                                        }
+                                    }, style = T.Sub.copy(fontSize = 12.5.sp, lineHeight = 18.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -478,11 +531,12 @@ fun SearchScreen() {
     }, overlay = { b ->
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp)) {
             GlassCircle(b, "back", { Nav.pop() })
-            Spacer(Modifier.height(64.dp))
-            Row(Modifier.fillMaxWidth().height(46.dp).glass(b, Capsule(), surface = Color.White.copy(alpha = 0.6f)).padding(horizontal = 16.dp),
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth().height(54.dp).glass(b, Capsule(), surface = Color.White.copy(alpha = 0.75f)).padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Icon("search", C.Sec, 18.dp); Spacer(Modifier.width(8.dp))
-                Field(q, { q = it }, "梯度、拉格朗日、老师原话…", Modifier.weight(1f))
+                Field(q, { q = it }, "搜笔记、课件、转写、复习卡…", Modifier.weight(1f), style = T.Label.copy(fontSize = 17.sp))
+                if (q.isNotBlank()) Box(Modifier.size(24.dp).clip(Capsule()).background(C.Ter).clickable { keep(q); q = "" }, contentAlignment = Alignment.Center) { Icon("close", Color.White, 12.dp, 2.6f) }
             }
         }
     })

@@ -68,6 +68,7 @@ import app.xuezhang.data.Store
 import app.xuezhang.engine.Live
 import app.xuezhang.net.Api
 import com.kyant.shapes.Capsule
+import androidx.compose.ui.text.style.TextOverflow
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,7 +87,7 @@ fun LiveScreen() {
     LaunchedEffect(Live.running.value) {
         if (!Live.running.value && lid != null && Nav.stack.lastOrNull() == Route.Live) {
             // 不足 30 秒的录音按误触作废：直接回去，不进「生成笔记」
-            if (Live.discarded.value == lid) Nav.pop() else Nav.replace(Route.Generating(lid))
+            if (Live.discarded.value == lid) Nav.pop() else Nav.replace(if (Live.autoGenerate) Route.Generating(lid) else Route.EndClass(lid))
         }
     }
     val slide = course?.slides?.firstOrNull { it.page == Live.currentPage.intValue } ?: course?.slides?.firstOrNull()
@@ -102,8 +103,9 @@ fun LiveScreen() {
                     BasicText(if (Live.paused.value) "已暂停 ${Live.fmt(Live.elapsed.longValue)}" else "录音中 ${Live.fmt(Live.elapsed.longValue)}",
                         style = T.Sub.copy(color = C.Red, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace))
                     Spacer(Modifier.width(10.dp))
-                    BasicText(listOfNotNull(course?.name, course?.teacher?.ifBlank { null }).joinToString(" · "), style = T.Sub, maxLines = 1)
+                    BasicText(course?.teacher.orEmpty(), style = T.Sub, maxLines = 1)
                 }
+                BasicText(course?.name ?: "上课中", Modifier.padding(horizontal = 20.dp), style = T.Large.copy(fontSize = 32.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (slide != null) item {
                 PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), radius = 20.dp) {
@@ -150,22 +152,27 @@ fun LiveScreen() {
         Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             GlassCircle(b, "back", { Nav.pop() })
-            Spacer(Modifier.width(12.dp))
-            LiquidSegmented(b, listOf("原声", "学长"), mode, { mode = it }, Modifier.weight(1f), height = 44.dp)
+            Spacer(Modifier.weight(1f))
+            LiquidSegmented(b, listOf("原声", "学长"), mode, { mode = it }, Modifier.width(150.dp), height = 44.dp)
             Spacer(Modifier.width(12.dp))
             GlassCircle(b, "star", { Live.markExam() }, iconColor = C.Red)
         }
-        // dock
-        Column(
-            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp).fillMaxWidth()
-                .glass(b, RoundedRectangle(36.dp), surface = Color.White.copy(alpha = 0.55f)).padding(14.dp)
+        // dock：标记考点 · 波形 · 暂停 · 红色停止（下课）
+        Row(
+            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp).fillMaxWidth().height(76.dp)
+                .glass(b, Capsule(), surface = Color.White.copy(alpha = 0.72f)).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Waveform(Live.levels.toList(), C.Ink.copy(alpha = 0.8f), Modifier.fillMaxWidth().height(30.dp))
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn(if (Live.paused.value) "继续" else "暂停", { Live.togglePause() }, Modifier.weight(1f), icon = if (Live.paused.value) "play" else "pause", backdrop = b)
-                Btn("标为考点", { Live.markExam() }, Modifier.weight(1.3f), icon = "star", tint = C.Orange, backdrop = b)
-                Btn("下课", { Live.stop(ctx) }, Modifier.weight(1f), icon = "stop", tint = C.Red, backdrop = b)
+            Column(Modifier.clip(RoundedCornerShape(18.dp)).clickable { Live.markExam() }.padding(horizontal = 8.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon("star", C.Red, 22.dp); BasicText("标记考点", style = T.Cap.copy(fontSize = 10.5.sp, color = C.Ink))
+            }
+            Waveform(Live.levels.toList().takeLast(24), C.Jade, Modifier.weight(1f).height(34.dp).padding(horizontal = 8.dp))
+            Box(Modifier.size(50.dp).clip(Capsule()).background(Color.White).clickable { Live.togglePause() }, contentAlignment = Alignment.Center) {
+                Icon(if (Live.paused.value) "play" else "pause", C.Ink, 22.dp)
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.size(54.dp).clip(Capsule()).background(C.Red).clickable { Live.stop(ctx) }, contentAlignment = Alignment.Center) {
+                Icon("stop", Color.White, 22.dp)
             }
         }
     })
@@ -303,6 +310,7 @@ fun GeneratingScreen(id: String) {
         Row(Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (l?.status == 3) GlassPill(b, "重新生成", { Live.regenerate(id, Live.genDepth) }, Modifier.weight(1f), tint = C.Blue.copy(alpha = 0.85f), color = Color.White)
+            if (Live.generating.value) GlassPill(b, "后台运行", { Nav.tabTo(2) }, Modifier.weight(1f))
             GlassPill(b, if (l?.status == 2) "查看笔记" else "先看课堂实录", { Nav.replace(Route.Note(id)) }, Modifier.weight(1f), color = C.Blue)
         }
     })
@@ -350,7 +358,7 @@ fun SheetHost() {
                             Btn(if (loading) "学长在想…" else "让学长讲讲", explain@{
                                 if (loading || explain != null) return@explain
                                 loading = true
-                                scope.launch {
+                                app.xuezhang.engine.AppJobs.launch {
                                     val job = app.xuezhang.engine.AiProgress.start("formula", "讲解公式")
                                     job.phase("学长在想怎么讲", 0.95f, 10_000)
                                     explain = try {

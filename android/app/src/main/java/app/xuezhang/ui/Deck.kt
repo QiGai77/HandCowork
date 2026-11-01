@@ -81,7 +81,7 @@ fun ConceptMapV6(l: Lecture) {
     fun gen() {
         if (busy) return
         err = null
-        scope.launch { try { app.xuezhang.engine.MindMap.generate(l.id) } catch (e: Exception) { err = e.message; Log.err("概念图", e) } }
+        app.xuezhang.engine.AppJobs.launch { try { app.xuezhang.engine.MindMap.generate(l.id) } catch (e: Exception) { err = e.message; Log.err("概念图", e) } }
     }
     Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("AI 导图" to false, "可拖动" to true).forEach { (t, v) ->

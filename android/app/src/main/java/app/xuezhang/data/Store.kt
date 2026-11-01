@@ -102,6 +102,8 @@ data class Settings(
     val gClientSecret: String = "",     // 「桌面应用」类型客户端附带的 secret（Google 视其为非机密，可留空）
     val gFolderId: String = "",         // Drive 上「课堂学长备份」文件夹 id
     val gLastSync: Long = 0,
+    val navOrder: String = "0,1,2,3",   // 底部导航栏顺序（tab id：0 课程 1 上课 2 笔记 3 我的），第一个是启动页
+    val noteView: Int = 0,              // 笔记显示：0 书架 / 1 列表
 )
 
 object Store {
@@ -186,21 +188,23 @@ object Store {
             arr("secs").map { o -> NoteSection(o.optString("t"), o.optJSONArray("p")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(), o.optString("b"), o.optLong("at", -1), o.optString("fr")) },
             optString("src"))
     }
-    private fun Settings.j() = JSONObject().put("ab", asrBase).put("ak", asrKey).put("am", asrModel).put("lb", llmBase)
+    fun Settings.j() = JSONObject().put("ab", asrBase).put("ak", asrKey).put("am", asrModel).put("lb", llmBase)
         .put("lk", llmKey).put("lm", llmModel).put("dm", defaultMode).put("cs", chunkSec).put("cf", confirmFill).put("lx", latex)
         .put("vm", visionModel).put("im", imageModel).put("pv", provider).put("sh", splashHidden).put("acc", account)
         .put("tt", testTarget).put("demo", demoSeeded).put("la", llmAuth).put("su", syncUri).put("du", davUrl).put("dus", davUser)
         .put("dp", davPass).put("ls", lastSync).put("nd", noteDepth)
         .put("po", JSONObject().also { o -> promptOverrides.forEach { (k, v) -> o.put(k, v) } })
         .put("gc", gClientId).put("gs", gClientSecret).put("gf", gFolderId).put("gl", gLastSync)
-    private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
+        .put("no", app.xuezhang.engine.NavOrder.encode(app.xuezhang.engine.NavOrder.parse(navOrder))).put("nv", noteView)
+    fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
         optString("vm", d.visionModel).ifBlank { d.visionModel }, optString("im", d.imageModel).ifBlank { d.imageModel },
         optString("pv", d.provider), optString("sh"), optString("acc"), optInt("tt"), optInt("demo"),
         optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls"), optInt("nd", 1),
         optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap(),
-        optString("gc"), optString("gs"), optString("gf"), optLong("gl")) }
+        optString("gc"), optString("gs"), optString("gf"), optLong("gl"),
+        app.xuezhang.engine.NavOrder.encode(app.xuezhang.engine.NavOrder.parse(optString("no", app.xuezhang.engine.NavOrder.DEFAULT))), optInt("nv", 0)) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())

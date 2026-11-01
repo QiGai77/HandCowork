@@ -49,7 +49,11 @@ object AiTips {
  * 没有真实进度时按预计耗时做渐近估计（永远在动，但不会冲到阶段终点）；
  * 有真实进度（页数、流式字数、上传字节）时取二者较大值。进度单调不减。
  */
-class AiJob internal constructor(val key: String, val title: String, val island: Boolean) {
+class AiJob internal constructor(val key: String, val title: String, val island: Boolean,
+                                 /** 发起任务的页面：点灵动岛回到这里（离开页面任务不中断）。 */
+                                 val origin: app.xuezhang.ui.Route? = null, val originTab: Int = 0,
+                                 /** 失败后点灵动岛重试。 */
+                                 val retry: (() -> Unit)? = null) {
     val fraction = mutableFloatStateOf(0f)
     val step = mutableStateOf("准备中")
     val detail = mutableStateOf("")
@@ -104,25 +108,38 @@ object AiProgress {
 
     fun find(key: String): AiJob? = jobs.lastOrNull { it.key == key }
 
-    fun start(key: String, title: String, island: Boolean = true): AiJob {
+    fun start(key: String, title: String, island: Boolean = true, origin: app.xuezhang.ui.Route? = runCatching { app.xuezhang.ui.Nav.stack.lastOrNull() }.getOrNull(),
+              retry: (() -> Unit)? = null): AiJob {
         jobs.removeAll { it.key == key }
-        val j = AiJob(key, title, island)
+        val j = AiJob(key, title, island, origin, runCatching { app.xuezhang.ui.Nav.tab.intValue }.getOrDefault(0), retry)
         jobs.add(j)
         ensureTicker()
         return j
     }
 
-    fun finish(j: AiJob, ok: Boolean = true, msg: String? = null, keepMs: Long = 900) {
+    fun finish(j: AiJob, ok: Boolean = true, msg: String? = null, keepMs: Long = 900, island: Boolean = j.island) {
         if (j.finished.value) return
         if (ok) { j.fraction.floatValue = 1f; j.step.value = msg ?: "完成" } else j.error.value = msg ?: "失败"
         j.finished.value = true
-        if (j.island) Island.show(msg ?: if (ok) "${j.title}完成" else "${j.title}失败", if (ok) Island.Kind.Done else Island.Kind.Warn)
+        if (island) {
+            val origin = j.origin; val tab = j.originTab
+            val text = msg ?: if (ok) "${j.title}完成 · 轻点查看" else "${j.title}失败 · 轻点重试"
+            // 完成 → 点岛回到结果页；失败 → 点岛重试（没有重试动作就回到发起页）
+            val action: (() -> Unit)? = when {
+                !ok && j.retry != null -> j.retry
+                origin != null -> { { app.xuezhang.ui.Nav.resume(origin, tab) } }
+                else -> null
+            }
+            Island.show(text, if (ok) Island.Kind.Done else Island.Kind.Warn, action)
+        }
         scope.launch { delay(keepMs); jobs.remove(j); pushIsland() }
     }
 
     /** 包一层：开始 → 执行 → 成功/失败收尾。 */
-    suspend fun <T> run(key: String, title: String, island: Boolean = true, doneMsg: String? = null, block: suspend (AiJob) -> T): T {
-        val j = start(key, title, island)
+    suspend fun <T> run(key: String, title: String, island: Boolean = true, doneMsg: String? = null,
+                        origin: app.xuezhang.ui.Route? = runCatching { app.xuezhang.ui.Nav.stack.lastOrNull() }.getOrNull(), retry: (() -> Unit)? = null,
+                        block: suspend (AiJob) -> T): T {
+        val j = start(key, title, island, origin, retry)
         return try { block(j).also { finish(j, true, doneMsg) } }
         catch (e: Exception) { finish(j, false, "${title}失败"); j.error.value = e.message ?: "失败"; throw e }
     }
@@ -144,8 +161,10 @@ object AiProgress {
     }
 
     private fun pushIsland() {
-        val top = jobs.lastOrNull { it.island && !it.finished.value }
+        val active = jobs.filter { it.island && !it.finished.value }
+        val top = active.lastOrNull()
         if (top == null) { Island.endProgress(); return }
-        Island.progress.value = Island.Progress("${top.title} · ${top.step.value}", top.fraction.floatValue, top.tip.value)
+        Island.progress.value = Island.Progress("${top.title} · ${top.step.value}", top.fraction.floatValue, top.tip.value, top.key,
+            others = active.dropLast(1).takeLast(2).map { Island.Mini(it.title, it.fraction.floatValue, it.key) }, elapsedMs = top.elapsed.longValue)
     }
 }

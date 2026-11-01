@@ -57,7 +57,7 @@ fun SyncSheetContent() {
     fun job(label: String, block: suspend () -> String) {
         if (busy != null) return
         busy = label; msg = null
-        scope.launch {
+        app.xuezhang.engine.AppJobs.launch {
             msg = try { block() } catch (e: Exception) { "失败：" + (e.message ?: "未知错误") } finally { busy = null }
         }
     }
