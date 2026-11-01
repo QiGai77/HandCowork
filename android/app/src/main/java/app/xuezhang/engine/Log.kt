@@ -26,7 +26,7 @@ object Log {
         }
     }
 
-    private val SECRET = Regex("(?i)(sk-[A-Za-z0-9_\\-]{8,}|Bearer\\s+[A-Za-z0-9._\\-]+|eyJ[A-Za-z0-9._\\-]{20,}|(api[_-]?key|token|access_token|refresh_token|password|SESSDATA)[\"'=:\\s]+[^\\s,\"'&]+)")
+    private val SECRET = Regex("(?i)(sk-[A-Za-z0-9_\\-]{8,}|ya29\\.[A-Za-z0-9._\\-]+|1//[A-Za-z0-9._\\-]{10,}|GOCSPX-[A-Za-z0-9_\\-]+|[?&]code=[^&\\s]+|Bearer\\s+[A-Za-z0-9._\\-]+|eyJ[A-Za-z0-9._\\-]{20,}|(api[_-]?key|token|access_token|refresh_token|password|SESSDATA)[\"'=:\\s]+[^\\s,\"'&]+)")
     fun redact(s: String): String = s.replace(SECRET) { m -> m.value.take(6) + "***" }
 
     fun add(tag: String, msg: String, ok: Boolean = true, detail: String = "") {

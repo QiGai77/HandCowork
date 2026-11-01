@@ -32,7 +32,9 @@ data class Course(
 )
 
 /** 笔记的一节：锚定到课件页码，正文可含 ```ui 交互组件。 */
-data class NoteSection(val title: String, val pages: List<Int> = emptyList(), val body: String = "")
+data class NoteSection(val title: String, val pages: List<Int> = emptyList(), val body: String = "",
+                       val atMs: Long = -1,         // 录播课：这一节在视频里开始的时间（毫秒），-1 未知
+                       val frame: String = "")       // 录播课：这一节对应的视频原画面截图（本机文件路径）
 
 data class Slide(val page: Int, val title: String, val text: String, val formulas: List<String> = emptyList())
 
@@ -96,6 +98,10 @@ data class Settings(
     val lastSync: Long = 0,
     val noteDepth: Int = 1,             // 笔记详略：0 简单 / 1 详细
     val promptOverrides: Map<String, String> = emptyMap(), // 自定义系统提示词（键见 Prompts.catalog）
+    val gClientId: String = "",         // Google OAuth 客户端 ID（留空用编译时 BuildConfig.GOOGLE_CLIENT_ID）
+    val gClientSecret: String = "",     // 「桌面应用」类型客户端附带的 secret（Google 视其为非机密，可留空）
+    val gFolderId: String = "",         // Drive 上「课堂学长备份」文件夹 id
+    val gLastSync: Long = 0,
 )
 
 object Store {
@@ -166,7 +172,7 @@ object Store {
         .put("nodes", JSONArray().also { a -> nodes.forEach { a.put(JSONObject().put("l", it.label).put("p", it.parent).put("d", it.detail)) } })
         .put("cards", JSONArray().also { a -> cards.forEach { a.put(JSONObject().put("q", it.q).put("a", it.a).put("t", it.tag).put("lv", it.level)) } })
         .put("st", if (status == 0 || status == 1) 3 else status)
-        .put("secs", JSONArray().also { a -> sections.forEach { a.put(JSONObject().put("t", it.title).put("p", JSONArray(it.pages)).put("b", it.body)) } })
+        .put("secs", JSONArray().also { a -> sections.forEach { a.put(JSONObject().put("t", it.title).put("p", JSONArray(it.pages)).put("b", it.body).put("at", it.atMs).put("fr", it.frame)) } })
         .put("src", source)
     fun JSONObject.lec(): Lecture {
         fun arr(k: String) = optJSONArray(k) ?: JSONArray()
@@ -177,7 +183,7 @@ object Store {
             arr("nodes").map { Node(it.optString("l"), it.optInt("p", -1), it.optString("d")) },
             arr("cards").map { Card(it.optString("q"), it.optString("a"), it.optString("t", "考点"), it.optInt("lv")) },
             optInt("st", 2),
-            arr("secs").map { o -> NoteSection(o.optString("t"), o.optJSONArray("p")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(), o.optString("b")) },
+            arr("secs").map { o -> NoteSection(o.optString("t"), o.optJSONArray("p")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(), o.optString("b"), o.optLong("at", -1), o.optString("fr")) },
             optString("src"))
     }
     private fun Settings.j() = JSONObject().put("ab", asrBase).put("ak", asrKey).put("am", asrModel).put("lb", llmBase)
@@ -186,13 +192,15 @@ object Store {
         .put("tt", testTarget).put("demo", demoSeeded).put("la", llmAuth).put("su", syncUri).put("du", davUrl).put("dus", davUser)
         .put("dp", davPass).put("ls", lastSync).put("nd", noteDepth)
         .put("po", JSONObject().also { o -> promptOverrides.forEach { (k, v) -> o.put(k, v) } })
+        .put("gc", gClientId).put("gs", gClientSecret).put("gf", gFolderId).put("gl", gLastSync)
     private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
         optString("vm", d.visionModel).ifBlank { d.visionModel }, optString("im", d.imageModel).ifBlank { d.imageModel },
         optString("pv", d.provider), optString("sh"), optString("acc"), optInt("tt"), optInt("demo"),
         optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls"), optInt("nd", 1),
-        optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap()) }
+        optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap(),
+        optString("gc"), optString("gs"), optString("gf"), optLong("gl")) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())
@@ -200,11 +208,11 @@ object Store {
         .put("lectures", JSONArray().also { a -> lectures.forEach { a.put(it.j()) } })
 
     /** 合并导入：同 id 覆盖，其余新增。pathMap 把备份里的文件名映射成本机路径。返回 (课程数, 笔记数)。 */
-    fun importBundle(o: JSONObject, fix: (Course) -> Course = { it }): Pair<Int, Int> {
+    fun importBundle(o: JSONObject, fix: (Course) -> Course = { it }, fixLec: (Lecture) -> Lecture = { it }): Pair<Int, Int> {
         if (o.optString("app") != "xuezhang") throw IllegalArgumentException("这不是课堂学长的备份文件")
         var nc = 0; var nl = 0
         o.optJSONArray("courses")?.let { a -> for (i in 0 until a.length()) { val c = fix(a.getJSONObject(i).course()); val k = courses.indexOfFirst { it.id == c.id }; if (k >= 0) courses[k] = c else courses.add(c); nc++ } }
-        o.optJSONArray("lectures")?.let { a -> for (i in 0 until a.length()) { val l = a.getJSONObject(i).lec(); val k = lectures.indexOfFirst { it.id == l.id }; if (k >= 0) lectures[k] = l else lectures.add(l); nl++ } }
+        o.optJSONArray("lectures")?.let { a -> for (i in 0 until a.length()) { val l = fixLec(a.getJSONObject(i).lec()); val k = lectures.indexOfFirst { it.id == l.id }; if (k >= 0) lectures[k] = l else lectures.add(l); nl++ } }
         save()
         return nc to nl
     }

@@ -58,6 +58,8 @@ object Live {
     val genStream = mutableStateOf("")
     /** 本次生成选的详略（null 用设置里的默认）。 */
     @Volatile var genDepth: Int? = null
+    /** 录播课导入自己会在截帧之后再画导图，这里关掉自动导图。 */
+    @Volatile var autoMindMap = true
 
     /** 长整理稿按行切块，每块不超过 max 字。 */
     fun chunkTranscript(t: String, max: Int): List<String> {
@@ -103,7 +105,7 @@ object Live {
         course = c
         val lec = Lecture(courseId = c.id, title = "${c.name} · 第 ${Store.lectures.count { it.courseId == c.id } + 1} 讲", status = 0)
         Store.upsertLecture(lec)
-        lectureId.value = lec.id
+        lectureId.value = lec.id; discardPending = false; discarded.value = null
         segments.clear(); elapsed.longValue = 0; error.value = null; paused.value = false
         currentPage.intValue = c.slides.firstOrNull()?.page ?: 0
         chunks = Channel(Channel.UNLIMITED)
@@ -120,8 +122,22 @@ object Live {
         Island.show("已标为考点", Island.Kind.Exam)
     }
 
+    /** 录音不足这个时长视为误触：不保存这节课、不生成笔记。 */
+    const val MIN_RECORD_MS = 30_000L
+    fun tooShort(recordedMs: Long): Boolean = recordedMs < MIN_RECORD_MS
+    /** 被作废的那节课 id（界面据此直接返回而不是进入「生成笔记」）。 */
+    val discarded = mutableStateOf<String?>(null)
+    @Volatile private var discardPending = false
+
     fun stop(ctx: Context) {
         if (!running.value) return
+        val ms = elapsed.longValue
+        if (tooShort(ms)) {
+            discardPending = true
+            discarded.value = lectureId.value
+            Log.ok("上课", "录制 ${ms / 1000} 秒，不足 30 秒，按误触作废（不保存、不生成笔记）")
+            android.widget.Toast.makeText(ctx.applicationContext, "录制不足30秒，已作废", android.widget.Toast.LENGTH_SHORT).show()
+        }
         running.value = false
         ctx.stopService(Intent(ctx, RecordService::class.java))
     }
@@ -195,6 +211,7 @@ object Live {
 
     private fun handle(f: File, start: Long) {
         val c = course ?: return
+        if (discardPending) return
         val raw = Api.transcribe(f, c.hotwords.joinToString("，"))
         if (raw.isBlank() || raw.length < 2) return
         val ctxText = segments.takeLast(3).joinToString("\n") { it.voice }
@@ -228,6 +245,13 @@ object Live {
 
     private suspend fun finishLecture() {
         val id = lectureId.value ?: return
+        if (discardPending) {
+            discardPending = false
+            Store.deleteLecture(id); segments.clear()
+            Island.show("录制不足30秒，已作废", Island.Kind.Info)
+            return
+        }
+        discarded.value = null
         persist()
         generate(id)
     }
@@ -241,6 +265,8 @@ object Live {
         if (l.segments.isEmpty()) { Store.upsertLecture(l.copy(status = 3)); genError.value = "这节课没有识别到内容"; return }
         generating.value = true; genError.value = null; genStep.intValue = 0; genPct.floatValue = 0.05f; genDetail.value = "整理最后几段录音"; genStream.value = ""
         Store.upsertLecture(l.copy(status = 1))
+        val job = AiProgress.start("notes:$id", "整理笔记")
+        job.phase("过滤语气词、对齐页码", 0.12f, 1500)
         try {
             for (s in 1..2) { delay(400); genStep.intValue = s }
             val slideIdx = c?.slides?.joinToString("\n") { "P.${it.page} ${it.title}" }?.take(3000).orEmpty()
@@ -256,6 +282,8 @@ object Live {
             Log.ok("整理笔记", "开始 · ${if (depth == 0) "简单" else "详细"} · ${chunks.size} 段 · ${transcript.length} 字")
             val parts = chunks.mapIndexed { i, ch ->
                 genDetail.value = if (chunks.size > 1) "提炼考点 · 第 ${i + 1}/${chunks.size} 段" else "提炼考点、公式和助记"
+                // 每段一个阶段：流式字数推进；首字前按预计耗时估算（深度思考模型可能很久才吐字）
+                job.phase(genDetail.value, (0.15f + 0.75f * (i + 1) / chunks.size), if (depth == 0) 45_000 else 90_000)
                 val r = withContext(Dispatchers.IO) {
                     Api.gen(Prompts.notesFor(depth, i + 1, chunks.size), listOf(Api.Part(head + "\n课堂整理稿" + (if (chunks.size > 1) "（第 ${i + 1}/${chunks.size} 部分）" else "") + "：\n$ch")),
                         Store.settings.value.llmModel, json = true) { acc ->
@@ -263,6 +291,7 @@ object Live {
                         genPct.floatValue = (0.3 + 0.6 * (i + f) / chunks.size).toFloat()
                         genStream.value = "已生成 ${acc.length} 字 · ${(System.currentTimeMillis() - t0) / 1000}s" +
                             (Regex("\"title\"\\s*:\\s*\"([^\"]{1,30})\"").findAll(acc).lastOrNull()?.let { " · 正在写「${it.groupValues[1]}」" } ?: "")
+                        job.stream(acc.length, expect.toInt(), genStream.value)
                     }
                 }
                 genPct.floatValue = (0.3 + 0.6 * (i + 1) / chunks.size).toFloat()
@@ -270,6 +299,7 @@ object Live {
                 JsonLoose.obj(r) ?: throw ApiException("模型返回的笔记 JSON 不完整：" + r.take(200))
             }
             genDetail.value = "合并笔记、生成概念图与复习卡"
+            job.phase("合并笔记、生成概念图与复习卡", 0.97f, 1500)
             val o = mergeNotes(parts)
             genStep.intValue = 4
             fun arr(k: String) = o.optJSONArray(k) ?: JSONArray()
@@ -277,7 +307,7 @@ object Live {
             val sections = arr("sections").objs { s ->
                 app.xuezhang.data.NoteSection(s.optString("title"),
                     s.optJSONArray("pages")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(),
-                    s.optString("body"))
+                    s.optString("body"), Frames.parseAt(s.optString("at")))
             }.filter { it.title.isNotBlank() || it.body.isNotBlank() }
             val notesText = o.optString("notes").ifBlank { sections.joinToString("\n\n") { "**${it.title}** ${it.body}" } }
             val done = (Store.lecture(id) ?: l).copy(
@@ -292,12 +322,14 @@ object Live {
             genStep.intValue = 5
             genPct.floatValue = 1f; genDetail.value = "完成"
             Log.ok("整理笔记", "完成 · ${done.sections.size} 节 · ${done.cards.size} 张卡")
-            Island.show("笔记生成好了", Island.Kind.Done)
+            AiProgress.finish(job, true, "笔记生成好了")
+            // OpenAI / ChatGPT：笔记好了自动用 gpt-image-2.5-flare 画 AI 导图（后台，不阻塞）
+            if (Api.isGpt() && done.nodes.isNotEmpty() && autoMindMap) scope.launch { runCatching { MindMap.generate(id) } }
         } catch (e: Exception) {
             genError.value = e.message
+            AiProgress.finish(job, false, "笔记生成失败"); job.error.value = e.message
             Log.err("整理笔记", e)
             Store.lecture(id)?.let { Store.upsertLecture(it.copy(status = 3)) }
-            Island.show("笔记生成失败", Island.Kind.Warn)
         } finally { generating.value = false }
     }
 

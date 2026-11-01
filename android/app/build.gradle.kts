@@ -11,8 +11,12 @@ android {
         applicationId = "app.xuezhang"
         minSdk = 26
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.0.6"
+        versionCode = 7
+        versionName = "0.0.7"
+        // Google Drive 云同步用的 OAuth 客户端（「桌面应用」类型）。也可以在 App 里「我的 › 云同步 › Google Drive」填写。
+        // 编译时传入：./gradlew assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (project.findProperty("googleClientId")?.toString() ?: "") + "\"")
+        buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"" + (project.findProperty("googleClientSecret")?.toString() ?: "") + "\"")
         androidResources.localeFilters += arrayOf("zh", "en")
     }
     signingConfigs {
@@ -31,7 +35,7 @@ android {
             signingConfig = signingConfigs.getByName("rel")
         }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging {
         resources { excludes += arrayOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin") }
     }

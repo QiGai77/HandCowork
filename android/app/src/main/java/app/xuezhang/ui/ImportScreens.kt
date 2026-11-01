@@ -157,15 +157,21 @@ fun ImportTimetableScreen() {
         if (!app.xuezhang.net.Api.llmReady()) { err = "nokey"; return }
         busy = true
         scope.launch {
+            val vm = Api.visionModelFor(Api.mode(), Store.settings.value.visionModel, Store.settings.value.llmModel)
+            val job = app.xuezhang.engine.AiProgress.start("timetable", "识别课程表")
             try {
-                val text = withContext(Dispatchers.IO) { Api.vision(Prompts.get("timetable"), "请识别这张课程表，严格按要求只输出 JSON。", scaleDown(b, 2048).jpeg(85)) }
-                val vm = Api.visionModelFor(Api.mode(), Store.settings.value.visionModel, Store.settings.value.llmModel)
+                job.phase("压缩图片", 0.08f, 800)
+                val jpg = withContext(Dispatchers.IO) { scaleDown(b, 2048).jpeg(85) }
+                job.phase("「看图」模型 $vm 读课表中", 0.88f, 35_000, "${jpg.size / 1024} KB")
+                val text = withContext(Dispatchers.IO) { Api.vision(Prompts.get("timetable"), "请识别这张课程表，严格按要求只输出 JSON。", jpg) }
+                job.phase("整理课程与上课时段", 0.98f, 800)
                 val entries = runCatching { Schedule.parseTimetable(text) }.getOrElse { throw IllegalStateException("「看图」模型（$vm）的回答里没有课程列表 JSON。\n模型回答：" + text.trim().ifBlank { "（空）" }.take(300)) }
                 if (entries.isEmpty()) throw IllegalStateException("模型回答里的课程都缺少课程名。\n模型回答：" + text.trim().take(300))
                 app.xuezhang.engine.Log.ok("导入课表", "识别 ${entries.size} 条 · $vm")
                 groups = Schedule.group(entries, Store.courses)
                 picked.addAll(groups.filter { !it.exists }.map { it.name })
-            } catch (e: Exception) { err = (e.message ?: e.javaClass.simpleName); app.xuezhang.engine.Log.err("导入课表", e) } finally { busy = false }
+                app.xuezhang.engine.AiProgress.finish(job, true, "识别到 ${groups.size} 门课")
+            } catch (e: Exception) { err = (e.message ?: e.javaClass.simpleName); app.xuezhang.engine.AiProgress.finish(job, false, "课表没认出来"); app.xuezhang.engine.Log.err("导入课表", e) } finally { busy = false }
         }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { u -> decodeScaled(ctx, u, 2400)?.let { recognize(it) } } }
@@ -188,7 +194,7 @@ fun ImportTimetableScreen() {
                             Icon("sparkle", C.Blue, 15.dp, fill = true); Spacer(Modifier.width(6.dp))
                             val weeks = groups.flatMap { it.entries }.map { it.weeks }.firstOrNull { it.isNotBlank() }
                             BasicText(when {
-                                busy -> "学长正在读课表…"
+                                busy -> "学长正在读课表…（${aiJob("timetable")?.step?.value ?: ""}）"
                                 groups.isNotEmpty() -> "识别到 ${groups.size} 门课" + (weeks?.let { " · 第 $it 周" } ?: "")
                                 else -> "没有识别结果"
                             }, style = T.Btn.copy(fontSize = 12.5.sp, color = C.Blue))
@@ -210,6 +216,7 @@ fun ImportTimetableScreen() {
                     }
                 }
             }
+            if (busy) item { AiProgressCard(aiJob("timetable")) }
             when {
                 err == "nokey" -> item { KeyMissing("识别课程表要用「看图」模型（当前 ${Store.settings.value.visionModel}），先在「我的 › 大模型」填好 API Key 或登录账号。") }
                 err != null -> item {
@@ -355,13 +362,18 @@ fun CoverPickerScreen(target: String) {
                             gen = true; genErr = null
                             scope.launch {
                                 try {
-                                    val urls = withContext(Dispatchers.IO) { Api.images(prompt, 2) }
-                                    val bmps = withContext(Dispatchers.IO) { urls.take(4).mapNotNull { u -> runCatching { Api.download(u).let { BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull() } }
-                                    if (bmps.isEmpty()) throw IllegalStateException("图片下载失败")
+                                    val bmps = app.xuezhang.engine.AiProgress.run("cover", "AI 生成封面", doneMsg = "封面画好了") { job ->
+                                        job.phase("${Store.settings.value.imageModel} 绘制中", 0.85f, 30_000, "2 张 · 16:9")
+                                        val urls = withContext(Dispatchers.IO) { Api.images(prompt, 2) }
+                                        job.phase("下载图片", 0.98f, 4000)
+                                        withContext(Dispatchers.IO) { urls.take(4).mapNotNull { u -> runCatching { (if (u.startsWith("b64:")) android.util.Base64.decode(u.removePrefix("b64:"), android.util.Base64.DEFAULT) else Api.download(u)).let { BitmapFactory.decodeByteArray(it, 0, it.size) } }.getOrNull() } }
+                                            .also { if (it.isEmpty()) throw IllegalStateException("图片下载失败") }
+                                    }
                                     results.clear(); results.addAll(bmps)
                                 } catch (e: Exception) { genErr = e.message ?: "生成失败" } finally { gen = false }
                             }
                         }, Modifier.fillMaxWidth(), icon = "sparkle", tint = C.Purple)
+                        if (gen) aiJob("cover")?.let { j -> Spacer(Modifier.height(10.dp)); AiProgressBar(j) }
                         genErr?.let { BasicText(it, Modifier.padding(top = 8.dp), style = T.Cap.copy(color = C.Red)) }
                         if (results.isNotEmpty()) {
                             Spacer(Modifier.height(10.dp))
@@ -399,7 +411,7 @@ private fun colorWord(c: Long): String {
 
 // =================== 导入 B 站录播课 ===================
 @Composable
-fun ImportBiliScreen() {
+fun ImportBiliScreen(presetCourse: String? = null, mode: Int = 0) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var link by remember { mutableStateOf("") }
@@ -410,17 +422,21 @@ fun ImportBiliScreen() {
     var err by remember { mutableStateOf<String?>(null) }
     var slideUri by remember { mutableStateOf<Uri?>(null) }
     var slideName by remember { mutableStateOf<String?>(null) }
-    var courseId by remember { mutableStateOf<String?>(null) }
+    var courseId by remember { mutableStateOf<String?>(presetCourse) }
     var localAudio by remember { mutableStateOf<Uri?>(null) }
+    var isVideo by remember { mutableStateOf(false) }
     // 本地录音 / 音频文件（m4a mp3 aac amr wav ogg opus），按录播课流程分段识别
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         val name = ctx.contentResolver.query(uri, null, null, null, null)?.use { cur -> val i = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME); cur.moveToFirst(); if (i >= 0) cur.getString(i) else null } ?: "录音"
         val dur = runCatching { android.media.MediaMetadataRetriever().run { setDataSource(ctx, uri); val d = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L; release(); (d / 1000).toInt() } }.getOrDefault(0)
         val title = name.substringBeforeLast('.').take(40)
-        localAudio = uri; err = null; pic = null; page = 1
-        info = Bili.Info("local", title, "本地音频", dur, "", listOf(Bili.Page(-1, title, dur)))
-        courseId = Store.courses.firstOrNull { c -> title.contains(c.name) }?.id
+        isVideo = ctx.contentResolver.getType(uri)?.startsWith("video") == true || name.substringAfterLast('.').lowercase() in setOf("mp4", "mkv", "webm", "mov", "3gp", "flv")
+        localAudio = uri; err = null; page = 1
+        // 本地视频：取一帧当封面
+        pic = if (isVideo) runCatching { android.media.MediaMetadataRetriever().run { setDataSource(ctx, uri); val b = getFrameAtTime(3_000_000); release(); b?.asImageBitmap() } }.getOrNull() else null
+        info = Bili.Info("local", title, if (isVideo) "本地视频" else "本地音频", dur, "", listOf(Bili.Page(-1, title, dur)))
+        if (presetCourse == null) courseId = Store.courses.firstOrNull { c -> title.contains(c.name) }?.id
     }
 
     fun lookup(text: String) {
@@ -433,7 +449,7 @@ fun ImportBiliScreen() {
             try {
                 val i = withContext(Dispatchers.IO) { Bili.info(bv) }
                 info = i; page = Bili.parsePage(t).coerceIn(1, maxOf(1, i.pages.size))
-                courseId = Store.courses.firstOrNull { c -> i.title.contains(c.name) || CoverMatch.match(i.title)?.let { p -> CoverMatch.match(c.name) == p } == true }?.id
+                if (presetCourse == null) courseId = Store.courses.firstOrNull { c -> i.title.contains(c.name) || CoverMatch.match(i.title)?.let { p -> CoverMatch.match(c.name) == p } == true }?.id
                 pic = withContext(Dispatchers.IO) { runCatching { Api.download(i.pic.replace("http://", "https://") + "@480w_270h_1c.jpg").let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }.getOrNull() }
             } catch (e: Exception) { err = e.message ?: "获取视频信息失败" } finally { loading = false }
         }
@@ -448,7 +464,7 @@ fun ImportBiliScreen() {
 
     GlassScaffold(content = {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 120.dp)) {
-            item { TopInset(); PageHeader("导入录播课", "用一节 B 站教学视频 + 对应 PPT 体验完整流程", beta = true) }
+            item { TopInset(); PageHeader(if (presetCourse != null) "课前资料 · 录播课" else "导入录播课", (presetCourse?.let { Store.course(it)?.name?.let { n -> "放进「$n」· " } } ?: "") + "B 站视频 / 本地音视频 + 对应 PPT", beta = true) }
             item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(48.dp)
                     .glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.6f)).padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -461,9 +477,10 @@ fun ImportBiliScreen() {
                 }
             }
             if (info == null) item {
-                Row(Modifier.padding(horizontal = 24.dp, vertical = 6.dp).clickable { pickAudio.launch(arrayOf("audio/*")) }, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(if (mode == 1) C.Blue.copy(alpha = 0.08f) else Color.Transparent)
+                    .clickable { pickAudio.launch(arrayOf("audio/*", "video/*")) }.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon("mic", C.Blue, 16.dp); Spacer(Modifier.width(6.dp))
-                    BasicText("或者导入手机录音 / 本地音频文件", style = T.Btn.copy(color = C.Blue, fontSize = 14.sp))
+                    BasicText(if (mode == 1) "选择本地录音 / 音频 / 视频文件" else "或者导入手机录音 / 本地音频 / 视频文件", style = T.Btn.copy(color = C.Blue, fontSize = 14.sp))
                 }
             }
             if (loading) item { BasicText("正在获取视频信息…", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = T.Sub) }
@@ -484,7 +501,7 @@ fun ImportBiliScreen() {
                                 BasicText(i.title, style = T.Btn, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 if (i.pages.size > 1 && pg != null) BasicText("P$page ${pg.part}", style = T.Label.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 BasicText("UP 主 · ${i.owner}", style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1)
-                                if (i.bvid == "local") BasicText("本地音频 · 分段语音识别", style = T.Cap.copy(fontSize = 11.5.sp)) else BasicText("将只下载音轨，约 ${maxOf(1, ((pg?.duration ?: i.duration) * 7.6 / 1024).toInt())} MB", style = T.Cap.copy(fontSize = 11.5.sp))
+                                if (i.bvid == "local") BasicText(if (isVideo) "本地视频 · 识别音轨，笔记配原画面截图" else "本地音频 · 分段语音识别", style = T.Cap.copy(fontSize = 11.5.sp)) else BasicText("将只下载音轨，约 ${maxOf(1, ((pg?.duration ?: i.duration) * 7.6 / 1024).toInt())} MB", style = T.Cap.copy(fontSize = 11.5.sp))
                             }
                         }
                         if (i.pages.size > 1) {
@@ -523,6 +540,7 @@ fun ImportBiliScreen() {
                         }
                     }
                 }
+                if (started) item { AiProgressCard(aiJob("bili")) }
                 if (started) item { BiliSteps() }
                 if (Store.settings.value.asrKey.isBlank() || !app.xuezhang.net.Api.llmReady()) item {
                     KeyMissing("识别和整理要用你自己的语音识别 / 大模型 Key（音轨下载不需要）。")
@@ -558,7 +576,7 @@ fun ImportBiliScreen() {
                     val p = CoverMatch.match(i.title)
                     Course(name = p?.key ?: i.title.take(12), cover = "", colorIdx = Store.courses.size % C.course.size, source = "bilibili:${i.bvid}").also { Store.upsertCourse(it); courseId = it.id }
                 }
-                Bili.start(ctx, i, pg, c, slideUri, slideName, localAudio)
+                Bili.start(ctx, i, pg, c, slideUri, slideName, localAudio, isVideo)
             }, bottom, tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 52.dp)
         }
     })
@@ -608,17 +626,16 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "修" to "课表照片识别：修复「没认出来」，失败时直接显示模型原话或接口错误",
-        "修" to "笔记里的交互组件不再渲染失败，认不出的自动退回文字",
-        "修" to "原声模式「上下文补全」标签不再把统计文字挤成竖排",
-        "新" to "整理笔记显示分步进度、百分比、已生成字数和耗时；可选简单 / 详细",
-        "新" to "长课分段整理再合并，逐页逐段覆盖不遗漏",
-        "新" to "学长模式自动跳过闲聊、游戏声等无关片段，原声里折叠淡化",
-        "新" to "导入手机录音 / 本地音频当录播课；B 站有字幕时直接用字幕",
-        "新" to "复习卡改成可滑动翻面的卡组；概念图可长按拖动，GPT 用户直接画成导图",
-        "新" to "我的 › 日志 与 模型提示词预览；ChatGPT 模型列表从上游实时获取",
+        "新" to "Google Drive 连接器：我的 › 云同步里授权 Google 账号，查看 Drive 文件夹和每个文件的上传进度",
+        "新" to "所有 AI 生成（笔记、课表、课件、导图、录播课、问答、封面）都有进度条 + 灵动岛进度 + 小彩蛋",
+        "新" to "笔记库变成书架：每门课一层，每节笔记一本书，点开翻页阅读",
+        "新" to "上课页改成课程卡组，左右滑选课；下面是「资料上传」和红色「开始上课」",
+        "新" to "录播视频（B 站 / 本地视频）的笔记每节配视频原画面截图，B 站截图可以换一张",
+        "新" to "OpenAI / ChatGPT 用户笔记生成后自动画 AI 导图",
+        "修" to "录音不足 30 秒视为误触，自动作废，不再生成空笔记",
+        "修" to "课件页面加载时显示微光占位，不再空白",
     )
-    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.6"
+    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7"
     fun maybeShow(ctx: Context) {
         if (shownThisLaunch) return
         shownThisLaunch = true

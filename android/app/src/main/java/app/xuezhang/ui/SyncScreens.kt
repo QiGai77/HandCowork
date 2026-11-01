@@ -95,7 +95,20 @@ fun SyncSheetContent() {
         BasicText("课程、笔记、封面和课件打包成一个备份文件。API Key 和账号登录信息不会被备份。", style = T.Cap.copy(fontSize = 12.sp, lineHeight = 17.sp))
 
         Spacer(Modifier.height(14.dp))
-        BasicText("云盘（Google 云端硬盘、手机自带云盘等）", style = T.Sub)
+        // Google Drive 连接器：OAuth 授权后直接用 Drive API 上传，可查看文件夹内容和每个文件的上传状态
+        val g = app.xuezhang.net.Auth.google.value
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).border(0.5.dp, Color(0x14000000), RoundedCornerShape(20.dp))
+            .clickable { Nav.sheet.value = null; Nav.push(Route.Drive) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(36.dp).clip(Capsule()).background(Color(0xFF1A73E8).copy(alpha = 0.12f)), contentAlignment = Alignment.Center) { Icon("cloud", Color(0xFF1A73E8), 18.dp, 2.1f) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                BasicText(if (g == null) "连接 Google Drive" else "Google Drive", style = T.Btn)
+                BasicText(if (g == null) "授权后自动上传备份，查看每个文件的上传状态" else (g.email.ifBlank { "已连接" } + " · 查看文件与上传状态"), style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1)
+            }
+            Icon("chev", C.Ter, 14.dp)
+        }
+        Spacer(Modifier.height(14.dp))
+        BasicText("系统文件选择器（Google 云端硬盘 App、手机自带云盘等）", style = T.Sub)
         Spacer(Modifier.height(6.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).border(0.5.dp, Color(0x14000000), RoundedCornerShape(20.dp)).padding(14.dp)) {
             BasicText("在系统文件选择器左上角菜单里选 Google 云端硬盘或手机厂商的云盘（需已安装对应 App 并登录），选好文件夹保存即可。", style = T.Cap.copy(fontSize = 11.5.sp, lineHeight = 16.sp))

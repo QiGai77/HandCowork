@@ -163,6 +163,7 @@ fun NoteScreen(id: String) {
                                 }
                                 Spacer(Modifier.height(8.dp))
                             }
+                            if (sec.frame.isNotBlank()) { FrameImage(l, i, sec); Spacer(Modifier.height(8.dp)) }
                             SlideStrip(course, sec.pages)
                             NoteBody(sec.body, onMath = { Nav.sheet.value = Sheet.Formula(it, sec.body) })
                         }
@@ -182,8 +183,8 @@ fun NoteScreen(id: String) {
                     }
                 }
                 if (l.source.startsWith("bilibili:") || course?.source == "demo") item {
-                    BasicText(if (course?.source == "demo") "示例课：视频为 B 站公开课「华中科技大学 电机学」${l.source.removePrefix("bilibili:")}（变压器（一））。课件和笔记是按本讲主题预先整理的示例，实录为示意，不是这段视频的逐字转写；导入你自己的录播课会真实下载音轨并识别。"
-                        else "来源：B 站 ${l.source.removePrefix("bilibili:")}", Modifier.padding(horizontal = 24.dp, vertical = 10.dp), style = T.Cap.copy(fontSize = 11.sp))
+                    BasicText(if (course?.source == "demo") "示例课：视频为 B 站公开课「华中科技大学 电机学」${app.xuezhang.engine.Bili.srcBv(l.source) ?: ""}（变压器（一））。课件和笔记是按本讲主题预先整理的示例，实录为示意，不是这段视频的逐字转写；导入你自己的录播课会真实下载音轨并识别。"
+                        else "来源：B 站 ${app.xuezhang.engine.Bili.srcBv(l.source) ?: ""}", Modifier.padding(horizontal = 24.dp, vertical = 10.dp), style = T.Cap.copy(fontSize = 11.sp))
                 }
             }
         }
@@ -397,58 +398,12 @@ private fun TranscriptTab(l: Lecture) {
     l.segments.forEach { s -> if (mode == 1) { if (!s.offTopic) SeniorBubble(s) } else VoiceCard(s, teacher) }
 }
 
-// =================== 笔记库 Tab ===================
-@Composable
-fun LibraryTab() {
-    val lectures = Store.lectures
-    LazyColumn(Modifier.fillMaxWidth()) {
-        item {
-            TopInset()
-            LargeHeader("共 ${lectures.size} 节课 · ${lectures.sumOf { it.cards.size }} 张复习卡", "笔记")
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(44.dp).glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.5f)).clip(Capsule())
-                .clickable { Nav.push(Route.Search) }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon("search", C.Sec, 18.dp); Spacer(Modifier.width(8.dp)); BasicText("搜索笔记、公式或老师原话", style = T.Label.copy(color = C.Sec))
-            }
-        }
-        if (lectures.isEmpty()) item { EmptyHint("还没有笔记", "上一节课就有了") }
-        Store.courses.forEach { c ->
-            val ls = lectures.filter { it.courseId == c.id }
-            if (ls.isNotEmpty()) {
-                item { BasicText(c.name, Modifier.padding(start = 20.dp, top = 22.dp, bottom = 8.dp), style = T.Item) }
-                item {
-                    PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = PaddingValues(0.dp)) {
-                        ls.forEachIndexed { i, l -> LibRow(l); if (i < ls.lastIndex) Divider(92.dp) }
-                    }
-                }
-            }
-        }
-        item { BottomSpacer() }
-    }
-}
-
-@Composable
-private fun LibRow(l: Lecture) {
-    val date = remember(l.date) { SimpleDateFormat("M月d日", Locale.CHINA).format(Date(l.date)) }
-    val tex = remember(l.notes) { Regex("\\$\\$?([^$]+)\\$\\$?").find(l.notes)?.groupValues?.get(1) }
-    Row(Modifier.fillMaxWidth().clickable { Nav.push(if (l.status == 1) Route.Generating(l.id) else Route.Note(l.id)) }.padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(64.dp, 44.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFF5F5F7)), contentAlignment = Alignment.Center) {
-            if (tex != null) MathBlock(tex.trim(), T.Body.copy(fontSize = 9.sp), scale = 1f) else Icon("note", C.Sec, 20.dp)
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            BasicText(l.title, style = T.Item, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BasicText("$date · ${l.segments.count { it.exam }} 个考点" + if (l.status == 1) " · 生成中" else if (l.status == 3) " · 待重试" else "", style = T.Sub)
-        }
-        Icon("chev", C.Ter, 14.dp)
-    }
-}
-
 // =================== 问学长（底部弹层） ===================
 @Composable
 fun AnswerSheetContent(s: Sheet.Answer) {
     var ans by remember(s) { mutableStateOf<String?>(null) }
     var err by remember(s) { mutableStateOf<String?>(null) }
+    var streamed by remember(s) { mutableStateOf("") }
     androidx.compose.runtime.LaunchedEffect(s) {
         val l = Store.lecture(s.lectureId)
         if (l == null) { err = "找不到这节课"; return@LaunchedEffect }
@@ -458,11 +413,17 @@ fun AnswerSheetContent(s: Sheet.Answer) {
             l.sections.forEach { append("## ${it.title}\n${it.body.replace(Regex("```[\\s\\S]*?```"), "")}\n") }
             if (l.sections.isEmpty()) append(l.notes)
         }.take(6000)
+        val job = app.xuezhang.engine.AiProgress.start("ask", "问学长")
         try {
-            ans = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                app.xuezhang.net.Api.chat(app.xuezhang.engine.Prompts.get("ask"), "笔记：\n$ctxText\n\n问题：${s.question}", json = false)
+            job.phase("学长在翻笔记、组织语言", 0.95f, 15_000)
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // 流式：边生成边显示，进度按已写字数推进
+                app.xuezhang.net.Api.gen(app.xuezhang.engine.Prompts.get("ask"), listOf(app.xuezhang.net.Api.Part("笔记：\n$ctxText\n\n问题：${s.question}")),
+                    Store.settings.value.llmModel, json = false) { acc -> streamed = acc; job.stream(acc.length, 260, "已写 ${acc.length} 字") }
             }
-        } catch (e: Exception) { err = e.message ?: "回答失败" }
+            ans = r.ifBlank { streamed }
+            app.xuezhang.engine.AiProgress.finish(job, true, "学长回答好了")
+        } catch (e: Exception) { err = e.message ?: "回答失败"; app.xuezhang.engine.AiProgress.finish(job, false, "回答失败") }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon("sparkle", C.Blue, 18.dp, fill = true); Spacer(Modifier.width(8.dp))
@@ -475,7 +436,10 @@ fun AnswerSheetContent(s: Sheet.Answer) {
     Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(sc)) {
         when {
             err != null -> BasicText(err!!, style = T.Body.copy(fontSize = 14.5.sp, color = C.HlOrange))
-            ans == null -> BasicText("学长在翻笔记…", style = T.Sub)
+            ans == null -> Column {
+                aiJob("ask")?.let { AiProgressBar(it) }
+                if (streamed.isNotBlank()) { Spacer(Modifier.height(10.dp)); RichText(streamed) }
+            }
             else -> RichText(ans!!, onMath = { Nav.sheet.value = Sheet.Formula(it, ans!!) })
         }
     }

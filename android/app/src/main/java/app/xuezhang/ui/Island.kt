@@ -1,5 +1,6 @@
 package app.xuezhang.ui
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -22,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -45,9 +47,9 @@ object Island {
     fun show(text: String, kind: Kind = Kind.Info) { current.value = Msg(text, kind) }
 
     /** 持续进度（导入课件等）：显示期间灵动岛常驻展开，带百分比和进度条。null = 无。 */
-    data class Progress(val text: String, val fraction: Float)
+    data class Progress(val text: String, val fraction: Float, val tip: String = "")
     val progress = mutableStateOf<Progress?>(null)
-    fun progress(text: String, fraction: Float) { progress.value = Progress(text, fraction.coerceIn(0f, 1f)) }
+    fun progress(text: String, fraction: Float, tip: String = "") { progress.value = Progress(text, fraction.coerceIn(0f, 1f), tip) }
     fun endProgress() { progress.value = null }
 }
 
@@ -60,7 +62,7 @@ private fun ProgressIsland(p: Island.Progress, x: Dp, top: Dp, baseH: Dp) {
             Modifier
                 .then(if (x != Dp.Unspecified) Modifier.offset(x = x - w / 2) else Modifier.fillMaxWidth().wrapContentSize(Alignment.TopCenter))
                 .offset(y = top)
-                .size(w, baseH + 26.dp)
+                .size(w, baseH + if (p.tip.isNotBlank()) 44.dp else 26.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color.Black)
                 .padding(horizontal = 16.dp, vertical = 7.dp)
@@ -74,8 +76,19 @@ private fun ProgressIsland(p: Island.Progress, x: Dp, top: Dp, baseH: Dp) {
                     BasicText("${(p.fraction * 100).toInt()}%", style = TextStyle(Color(0xFF64D2FF), 12.5.sp, FontWeight.Bold))
                 }
                 Spacer(Modifier.size(5.dp))
+                // 进度条上有一道流光，即使估算进度走得慢也能看出「还在动」
+                val sheen = androidx.compose.animation.core.rememberInfiniteTransition(label = "sh").animateFloat(-0.3f, 1.3f,
+                    androidx.compose.animation.core.infiniteRepeatable(tween(1400)), label = "shx")
                 Box(Modifier.fillMaxWidth().size(width = 0.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(Color(0x33FFFFFF))) {
-                    Box(Modifier.fillMaxWidth(anim.value.coerceIn(0.02f, 1f)).size(width = 0.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(Color(0xFF0A84FF)))
+                    Box(Modifier.fillMaxWidth(anim.value.coerceIn(0.02f, 1f)).size(width = 0.dp, height = 4.dp).clip(RoundedCornerShape(50))
+                        .background(Color(0xFF0A84FF))
+                        .sheen(sheen.value))
+                }
+                if (p.tip.isNotBlank()) {
+                    Spacer(Modifier.size(5.dp))
+                    androidx.compose.animation.Crossfade(p.tip, label = "tip") { t ->
+                        BasicText(t, style = TextStyle(Color(0xFFAEAEB2), 11.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
@@ -154,4 +167,14 @@ fun IslandHost() {
             }
         }
     }
+}
+
+/** 流光：一条半透明白色斜带在进度条上从左扫到右。 */
+fun Modifier.sheen(x: Float): Modifier = this.drawWithContent {
+    drawContent()
+    val w = size.width
+    val cx = w * x
+    drawRect(androidx.compose.ui.graphics.Brush.horizontalGradient(
+        listOf(Color.White.copy(alpha = 0f), Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0f)),
+        startX = cx - w * 0.18f, endX = cx + w * 0.18f))
 }

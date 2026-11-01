@@ -8,7 +8,7 @@
 
 录音实时转写，AI 学长按课件逐页讲解，图表能拖，题目能做。
 
-![version](https://img.shields.io/badge/version-0.0.5-0A84FF)
+![version](https://img.shields.io/badge/version-0.0.7-0A84FF)
 ![android](https://img.shields.io/badge/Android-8.0%2B-34C759)
 ![compose](https://img.shields.io/badge/Jetpack-Compose-4285F4)
 ![status](https://img.shields.io/badge/状态-测试版-FF9500)
@@ -26,8 +26,21 @@
 | **课程** | 拍一张课程表，看图模型一键导入整学期；首页只看今天的课 |
 | **课件** | 导入 PPT / PDF / B 站录播课，实时进度条 + 灵动岛，还有彩蛋 |
 | **模型** | SiliconFlow、OpenAI、阿里云百炼、火山、DeepSeek、Claude 等；支持 ChatGPT / Claude 账号登录，并查看 5 小时与周额度 |
-| **同步** | 备份到 Google Drive、手机云盘（系统文件选择器）或 WebDAV |
+| **同步** | Google Drive 连接器（OAuth 授权、可续传上传、文件夹与上传状态）、手机云盘（系统文件选择器）、WebDAV |
 | **分享** | 笔记导出 DOCX、PDF、Markdown 或长图 |
+
+## v0.0.7 更新
+
+- **Google Drive 连接器**：我的 › 云同步 › 连接 Google Drive。浏览器 / Custom Tab 里完成 Google 授权（PKCE，权限只有 `drive.file`），返回后显示已连接的账号；可查看 Drive 里「课堂学长备份」文件夹的内容、每个文件的上传状态（上传中百分比 / 已上传 / 未变化 / 失败、大小、时间），手动「立即同步」，从 Drive 上的备份恢复。上传走 Drive REST v3 可续传上传（1 MiB 分块，断网自动查询偏移续传），内容没变的文件按 md5 跳过。原有系统文件选择器和 WebDAV 同步保留。令牌用 Android Keystore 加密，不写日志（日志会把 `ya29.` / `1//` / `GOCSPX-` / `code=` 打码）
+- **统一 AI 进度**：整理笔记、提炼考点、课表识别、课件解析、AI 导图、录播课导入、问学长、公式讲解、AI 封面，全部有屏幕内进度条（步骤 + 百分比 + 已用时）、灵动岛进度胶囊和轮播的「小彩蛋」提示；没有真实进度时按预计耗时渐近估算，进度条带流光，不会卡住不动；流式输出按已生成字数推进
+- **笔记书架**：笔记库按科目分层，每门课一层书架，每节笔记是一本书（书脊竖排标题、日期、按科目配色）；点开后左右翻页阅读（以书脊为轴的 3D 翻页 + 阴影），页面内容可上下滚动，公式、图表、选择题等交互组件照常可用
+- **上课页卡组**：课程叠成卡组，左右滑动选课（循环），默认选中今天下一节课；下方「资料上传」（课前资料：PPT/PDF、B 站 BV 号 / 链接、本地音频 / 视频）和红色大按钮「开始上课」
+- **误触作废**：录音不足 30 秒视为误触，不保存这节课、不生成笔记，提示「录制不足30秒，已作废」，并记入日志
+- **录播视频配原画面**：B 站和本地视频导入的笔记，每节按时间点配视频原画面截图（本地视频用 MediaMetadataRetriever 截帧，B 站用官方 videoshot 截图），不使用 AI 生成图；B 站来源可在笔记里点「换一张」从前后约 1 分钟的截图中挑选
+- B 站 / 本地录播课导入并入「课前资料」流程（导入时直接放进当前课程）
+- OpenAI / ChatGPT 用户：笔记生成后自动用 `gpt-image-2.5-flare` 画 AI 导图
+- 课件页面加载时显示微光占位
+- 云同步备份包含录播课截图
 
 ## v0.0.6 更新
 
@@ -72,18 +85,44 @@
 
 </details>
 
+<details>
+<summary><b>Google Drive 一次性设置（开发者）</b></summary>
+
+Google 已不允许「Android」类型的 OAuth 客户端在浏览器里用自定义 scheme 回跳，所以课堂学长用 Google 官方支持的「桌面应用」流程：浏览器 / Custom Tab 授权 + PKCE + 回调到手机本机 `http://127.0.0.1:随机端口`（由 App 内的临时小服务接住）。不需要 Google Play 服务。
+
+1. 打开 [Google Cloud 控制台](https://console.cloud.google.com/)，新建或选择一个项目
+2. 「API 和服务 › 库」搜索 **Google Drive API**，启用
+3. 「Google Auth Platform」配置品牌塑造（应用名「课堂学长」、支持邮箱）；受众群体选「外部」，测试阶段把要用的 Google 账号加入 **测试用户**（未发布的应用只有测试用户能授权，测试状态下刷新令牌 7 天过期，到期后重新连接即可；正式发布后不限）
+4. 「数据访问」添加范围 `https://www.googleapis.com/auth/drive.file`（非敏感范围，无需 Google 审核）
+5. 「客户端 › 创建客户端」，应用类型选 **桌面应用**，得到客户端 ID（`…apps.googleusercontent.com`）和客户端密钥（`GOCSPX-…`，Google 视桌面客户端为公开客户端，这个密钥不算机密）
+6. 两种填法任选：
+   - App 里：我的 › 云同步 › Google Drive › 「Google Drive 设置说明」，粘贴客户端 ID 和密钥，保存
+   - 编译时：`gradle assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx`（写进 `BuildConfig`，App 里留空时使用）
+7. 点「连接 Google Drive」→ 浏览器里选账号、勾选权限 → 页面显示「授权成功」后点「返回课堂学长」
+
+签名证书（`android/xuezhang.jks`）指纹，以后若改用 Android 类型客户端 / Google Play 服务登录时需要：
+
+```
+SHA-1:   86:20:1A:BD:19:F4:17:DC:5E:C4:A2:38:5E:17:80:9E:6E:DB:82:7E
+SHA-256: F8:B8:B4:71:04:44:C2:11:77:86:11:48:D8:2D:B9:EF:08:12:7B:2C:F4:B4:59:C5:AC:F0:B1:03:47:C1:CE:4F
+包名:    app.xuezhang
+```
+
+</details>
+
 ## 构建
 
 ```bash
 cd android
 gradle assembleRelease   # 或直接用 Android Studio 打开 android/
+# 可选：-PgoogleClientId=… -PgoogleClientSecret=…（Google Drive 云同步）
 ```
 
 环境：AGP 9.3 · Gradle 9.8 · compileSdk 37 · minSdk 26 · Kotlin + Jetpack Compose
 
 ## 隐私
 
-录音与笔记只保存在本机；API Key 只发给你填写的接口，账号登录凭据用 Android Keystore 加密，两者都不进入云同步备份。
+录音与笔记只保存在本机；API Key 只发给你填写的接口，账号登录凭据（含 Google Drive 令牌）用 Android Keystore 加密，两者都不进入云同步备份，也不写进日志。Google Drive 只申请 `drive.file` 权限，只能访问本应用创建的文件。
 
 ## 致谢
 

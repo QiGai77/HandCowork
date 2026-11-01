@@ -208,7 +208,7 @@ private fun HeroCourse(t: Schedule.Today, nowMin: Int, start: (Course) -> Unit) 
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn(if (Live.running.value) "回到课堂" else "开始上课", { start(c) }, Modifier.weight(1f), icon = "mic", tint = C.Ink)
-            Btn("课前资料", { Nav.push(Route.CourseDetail(c.id)) }, Modifier.weight(1f), icon = "file")
+            Btn("课前资料", { Nav.push(Route.Materials(c.id)) }, Modifier.weight(1f), icon = "file")
         }
     }
 }
@@ -239,7 +239,7 @@ fun semesterLabel(cal: java.util.Calendar = Schedule.clock()): String {
 fun ImportMenu(open: Boolean, onDismiss: () -> Unit) {
     if (!open) return
     Column(Modifier.padding(top = 6.dp).width(210.dp).glass(LocalBg.current!!, com.kyant.shapes.RoundedRectangle(22.dp), surface = Color.White.copy(alpha = 0.82f)).padding(vertical = 6.dp)) {
-        listOf(Triple("拍照导入课程表", "scan", Route.ImportTimetable), Triple("导入 B 站录播课", "tv", Route.ImportBili)).forEach { (t, ic, r) ->
+        listOf(Triple("拍照导入课程表", "scan", Route.ImportTimetable), Triple("导入 B 站录播课", "tv", Route.ImportBili())).forEach { (t, ic, r) ->
             Row(Modifier.fillMaxWidth().clickable { onDismiss(); Nav.push(r) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(ic, if (ic == "tv") Color(0xFFFB7299) else C.Ink, 18.dp); Spacer(Modifier.width(10.dp))
                 BasicText(t, Modifier.weight(1f), style = T.Label)
@@ -324,34 +324,6 @@ fun LiveBanner() {
         Spacer(Modifier.width(10.dp))
         BasicText("正在听课 · ${Live.fmt(Live.elapsed.longValue)}", Modifier.weight(1f), style = T.Btn.copy(color = Color.White))
         BasicText("回到课堂", style = T.Sub.copy(color = Color(0xFFB0B0B5)))
-    }
-}
-
-// =================== 上课 Tab ===================
-@Composable
-fun ClassTab() {
-    val start = rememberStartClass()
-    LazyColumn(Modifier.fillMaxWidth()) {
-        item { TopInset(); LargeHeader(if (Live.running.value) "正在录音" else "选一门课开始", "上课") }
-        if (Live.running.value) item { LiveBanner() }
-        item {
-            PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
-                BasicText("学长会边听边整理", style = T.Item)
-                Spacer(Modifier.height(6.dp))
-                RichText("**原声**：过滤语气词和重复，保留老师原话，没听清的字按上下文补全并标成 [f:灰色虚线]。\n**学长**：用大白话转述，[b:概念] [r:考点] [o:助记] 都会标出来，公式 \$\\nabla f\$ 直接渲染。", style = T.Body.copy(fontSize = 14.sp))
-            }
-        }
-        item { SectionLabel("我的课程") }
-        item {
-            PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Store.courses.forEachIndexed { i, c ->
-                    CourseRow(c) { start(c) }
-                    if (i < Store.courses.lastIndex) Divider(70.dp)
-                }
-                if (Store.courses.isEmpty()) Row2("新建课程", "", { Nav.push(Route.EditCourse(null)) })
-            }
-        }
-        item { BottomSpacer() }
     }
 }
 
@@ -491,52 +463,15 @@ fun EditCourseScreen(id: String?) {
             val i = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME); cur.moveToFirst(); if (i >= 0) cur.getString(i) else null
         } ?: "课件"
         scope.launch {
-            // 实时进度：页面 n/N + 百分比，灵动岛与蓝色进度条同步；文案每 2 秒轮换
-            var page = 0; var total = 0; var phase = 0; var tick = 0
-            fun pct() = progress
-            fun push() {
-                val line = app.xuezhang.engine.ImportFun.line(phase, page, total, tick)
-                parsing = line
-                Island.progress(line, pct())
-            }
-            val ticker = launch {
-                while (true) {
-                    kotlinx.coroutines.delay(2000); tick++
-                    if (phase == 1 && progress < 0.95f) progress += (0.95f - progress) * 0.12f
-                    push()
-                }
-            }
+            parsing = name
             try {
-                parsing = "正在读取 $name"; progress = 0.02f; Island.progress("学长拿到课件了：$name", 0.02f)
-                val local = withContext(Dispatchers.IO) { SlideParser.copyLocal(ctx, uri, name, Nav.draft.value!!.id) }
-                progress = 0.05f
-                val src = if (local.isNotBlank()) Uri.fromFile(java.io.File(local)) else uri
-                val pages = withContext(Dispatchers.IO) {
-                    SlideParser.extract(ctx, src, name) { p, n ->
-                        page = p; total = n
-                        progress = if (n > 0) 0.05f + p.toFloat() / n * 0.55f else (0.05f + p * 0.01f).coerceAtMost(0.5f)
-                        push()
-                    }
-                }
-                phase = 1; progress = 0.6f; push()
-                val (hot, slides) = withContext(Dispatchers.IO) {
-                    runCatching { SlideParser.analyze(pages) }.getOrElse { e ->
-                        Island.show("没连上大模型，只保存了页面文字", Island.Kind.Warn); emptyList<String>() to SlideParser.plainSlides(pages)
-                    }
-                }
-                ticker.cancel()
-                progress = 1f
-                val done = app.xuezhang.engine.ImportFun.done()
-                parsing = done; Island.progress(done, 1f)
+                val r = app.xuezhang.engine.SlideImport.run(ctx, uri, name, Nav.draft.value!!.id)
                 val cur = Nav.draft.value!!
-                upd(cur.copy(hotwords = (cur.hotwords + hot).distinct(), slides = slides, slideFile = name, slidePath = local))
-                kotlinx.coroutines.delay(1200)
-                Island.endProgress()
-                Island.show("课件解析完成 · ${pages.size} 页 · ${hot.size} 个热词", Island.Kind.Done)
+                upd(cur.copy(hotwords = (cur.hotwords + r.hot).distinct(), slides = r.slides, slideFile = r.name, slidePath = r.local))
+                Island.show("课件解析完成 · ${r.pages} 页 · ${r.hot.size} 个热词", Island.Kind.Done)
             } catch (e: Exception) {
-                Island.endProgress()
                 Island.show("解析失败：${e.message?.take(30)}", Island.Kind.Warn)
-            } finally { ticker.cancel(); Island.endProgress(); parsing = null }
+            } finally { parsing = null }
         }
     }
 
@@ -603,16 +538,7 @@ fun EditCourseScreen(id: String?) {
                     picker.launch(arrayOf("application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"))
                 }) {
                     if (parsing != null) {
-                        val shown by androidx.compose.animation.core.animateFloatAsState(progress, androidx.compose.animation.core.spring(0.9f, 120f), label = "imp")
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            BasicText(parsing!!, Modifier.weight(1f), style = T.Btn, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.width(8.dp))
-                            BasicText("${(progress * 100).toInt()}%", style = T.Btn.copy(color = C.Blue))
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Box(Modifier.fillMaxWidth().height(8.dp).clip(Capsule()).background(C.Fill)) {
-                            Box(Modifier.fillMaxWidth(shown.coerceIn(0.02f, 1f)).height(8.dp).clip(Capsule()).background(C.Blue))
-                        }
+                        AiProgressBar(aiJob(app.xuezhang.engine.SlideImport.key(c.id)))
                     } else {
                         Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon("upload", C.Blue, 26.dp, 2.2f)

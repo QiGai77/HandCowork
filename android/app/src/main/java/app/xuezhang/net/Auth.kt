@@ -57,6 +57,8 @@ object Auth {
 
     val chatgpt = mutableStateOf<Token?>(null)
     val claude = mutableStateOf<Token?>(null)
+    /** Google Drive（云同步）授权。email = Google 账号，plan 存显示名。 */
+    val google = mutableStateOf<Token?>(null)
     val gptQuota = mutableStateOf<Quota?>(null)
     val claudeQuota = mutableStateOf<Quota?>(null)
     /** ChatGPT 登录进行中时的状态文字（null = 空闲）。 */
@@ -72,15 +74,17 @@ object Auth {
             val o = JSONObject(decrypt(file.readBytes()))
             chatgpt.value = Token.of(o.optJSONObject("chatgpt"))
             claude.value = Token.of(o.optJSONObject("claude"))
+            google.value = Token.of(o.optJSONObject("google"))
         }
     }
 
     @Synchronized
-    private fun persist() {
+    internal fun persist() {
         if (!::file.isInitialized) return
         val o = JSONObject()
         chatgpt.value?.let { o.put("chatgpt", it.j()) }
         claude.value?.let { o.put("claude", it.j()) }
+        google.value?.let { o.put("google", it.j()) }
         runCatching { val tmp = File(file.parentFile, "auth.bin.tmp"); tmp.writeBytes(encrypt(o.toString())); tmp.renameTo(file) }
     }
 
@@ -108,11 +112,11 @@ object Auth {
     }
 
     // ---------------- PKCE ----------------
-    private fun b64url(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-    private fun rnd(n: Int) = ByteArray(n).also { SecureRandom().nextBytes(it) }
-    private fun challenge(v: String) = b64url(MessageDigest.getInstance("SHA-256").digest(v.toByteArray()))
-    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
-    private fun query(m: Map<String, String>) = m.entries.joinToString("&") { "${it.key}=${enc(it.value)}" }
+    internal fun b64url(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    internal fun rnd(n: Int) = ByteArray(n).also { SecureRandom().nextBytes(it) }
+    internal fun challenge(v: String) = b64url(MessageDigest.getInstance("SHA-256").digest(v.toByteArray()))
+    internal fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+    internal fun query(m: Map<String, String>) = m.entries.joinToString("&") { "${it.key}=${enc(it.value)}" }
 
     fun jwtClaims(jwt: String): JSONObject? = runCatching {
         JSONObject(String(Base64.decode(jwt.split(".")[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)))
@@ -159,7 +163,7 @@ object Auth {
 
     fun cancelChatGPT() { runCatching { gptServer?.close() }; gptServer = null }
 
-    private fun waitCallback(servers: List<ServerSocket>, state: String): String {
+    internal fun waitCallback(servers: List<ServerSocket>, state: String, cbPath: String = "/auth/callback", what: String = "ChatGPT", onOk: () -> Unit = {}, okHtml: String = ""): String {
         val deadline = System.currentTimeMillis() + 5 * 60_000
         var result: String? = null; var error: String? = null
         val lock = Object()
@@ -174,19 +178,21 @@ object Auth {
                         val path = line.split(" ").getOrNull(1).orEmpty()
                         val q = path.substringAfter('?', "").split("&").filter { it.contains('=') }
                             .associate { URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8") }
-                        val ok = path.startsWith("/auth/callback") && q["code"] != null && q["state"] == state
+                        val isCb = path.startsWith(cbPath) && (q.containsKey("code") || q.containsKey("error"))
+                        val ok = isCb && q["code"] != null && q["state"] == state
                         val msg = when {
-                            ok -> "登录成功，可以回到「课堂学长」了。"
-                            path.startsWith("/auth/callback") -> "登录失败：" + (q["error_description"] ?: q["error"] ?: "state 不匹配")
-                            else -> "课堂学长正在等待 ChatGPT 登录…"
+                            ok -> "授权成功，可以回到「课堂学长」了。"
+                            isCb -> "授权失败：" + (q["error_description"] ?: q["error"] ?: "state 不匹配")
+                            else -> "课堂学长正在等待 $what 授权…"
                         }
-                        val html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'></head><body style='font-family:sans-serif;padding:40px;text-align:center'><h2>$msg</h2></body></html>"
+                        val html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width'></head><body style='font-family:sans-serif;padding:40px;text-align:center'><h2>$msg</h2>${if (ok) okHtml else ""}</body></html>"
                         val bytes = html.toByteArray()
                         runCatching { so.getOutputStream().apply { write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray()); write(bytes); flush() } }
                         synchronized(lock) {
                             if (ok) { result = q["code"]; lock.notifyAll() }
-                            else if (path.startsWith("/auth/callback")) { error = msg; lock.notifyAll() }
+                            else if (isCb) { error = msg; lock.notifyAll() }
                         }
+                        if (ok) runCatching(onOk)
                     }
                 }
                 synchronized(lock) { lock.notifyAll() }

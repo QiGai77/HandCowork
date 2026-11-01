@@ -66,33 +66,22 @@ object MapPos {
     }
 }
 
-/** 概念图：OpenAI / ChatGPT 账号直接用 gpt-image 画成图；其他服务商用可拖动的代码绘制版。 */
+/** 概念图：OpenAI / ChatGPT 账号直接用 gpt-image 画成图（笔记生成后自动画）；其他服务商用可拖动的代码绘制版。 */
 @Composable
 fun ConceptMapV6(l: Lecture) {
     if (!Api.isGpt() || l.nodes.isEmpty()) { ConceptMap(l); return }
-    val file = remember(l.id) { File(Store.dir, "conceptmap_${l.id}.png") }
-    var img by remember(l.id) { mutableStateOf<ImageBitmap?>(runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()) }
-    var busy by remember { mutableStateOf(false) }
+    val file = app.xuezhang.engine.MindMap.file(l.id)
+    val ver = app.xuezhang.engine.MindMap.version.intValue
+    val img = remember(l.id, ver) { runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull() }
+    val job = aiJob("mindmap:${l.id}")
+    val busy = job != null && !job.finished.value
     var err by remember { mutableStateOf<String?>(null) }
     var showCode by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun gen() {
-        busy = true; err = null
-        scope.launch {
-            try {
-                val tree = buildString {
-                    fun walk(i: Int, d: Int) { append("  ".repeat(d)).append("- ").append(l.nodes[i].label).append('\n'); l.nodes.indices.filter { l.nodes[it].parent == i }.forEach { walk(it, d + 1) } }
-                    l.nodes.indices.filter { l.nodes[it].parent !in l.nodes.indices }.forEach { walk(it, 0) }
-                }
-                val bytes = withContext(Dispatchers.IO) {
-                    val u = Api.images(Prompts.get("mindmap") + "\n" + tree, 1, "1536x1024", "gpt-image-2.5-flare").first()
-                    if (u.startsWith("b64:")) android.util.Base64.decode(u.removePrefix("b64:"), android.util.Base64.DEFAULT) else Api.download(u)
-                }
-                file.writeBytes(bytes)
-                img = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                Log.ok("概念图", "gpt-image-2.5-flare 生成成功")
-            } catch (e: Exception) { err = e.message; Log.err("概念图", e) } finally { busy = false }
-        }
+        if (busy) return
+        err = null
+        scope.launch { try { app.xuezhang.engine.MindMap.generate(l.id) } catch (e: Exception) { err = e.message; Log.err("概念图", e) } }
     }
     Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("AI 导图" to false, "可拖动" to true).forEach { (t, v) ->
@@ -103,8 +92,8 @@ fun ConceptMapV6(l: Lecture) {
     if (showCode) { ConceptMap(l); return }
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), radius = 26.dp, padding = PaddingValues(10.dp)) {
         when {
-            img != null -> Image(img!!, "概念图", Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.FillWidth)
-            busy -> BasicText("学长正在用 gpt-image-2.5-flare 画导图…", Modifier.fillMaxWidth().padding(40.dp), style = T.Sub.copy(textAlign = TextAlign.Center))
+            busy -> Column(Modifier.padding(10.dp)) { AiProgressBar(job) }
+            img != null -> Image(img, "概念图", Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.FillWidth)
             else -> BasicText("用 GPT 把这节课的概念树画成一张导图", Modifier.fillMaxWidth().padding(30.dp), style = T.Sub.copy(textAlign = TextAlign.Center))
         }
         err?.let { BasicText(it, Modifier.padding(8.dp), style = T.Cap.copy(color = C.Red)) }

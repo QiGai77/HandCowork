@@ -49,12 +49,15 @@ sealed interface Route {
     data object Search : Route
     data object Courses : Route
     data object ImportTimetable : Route
-    data object ImportBili : Route
+    data class ImportBili(val courseId: String? = null, val mode: Int = 0) : Route // mode 0 B 站链接 1 本地音频/视频
     /** target = 课程 id，或 "draft" 表示正在新建/编辑的草稿 */
     data class CoverPicker(val target: String) : Route
     data object Login : Route
     data object Logs : Route
     data object Prompts : Route
+    data object Drive : Route
+    data class Book(val lectureId: String) : Route
+    data class Materials(val courseId: String) : Route
 }
 
 object Nav {
@@ -75,6 +78,7 @@ sealed interface Sheet {
     data class Answer(val question: String, val lectureId: String) : Sheet
     data class Model(val kind: Int) : Sheet // 0 语音 1 大模型
     data object Sync : Sheet
+    data class Frames(val lectureId: String, val secIdx: Int) : Sheet
 }
 
 /** 内容层（参与玻璃折射） + 浮层（玻璃控件）。 */
@@ -125,11 +129,14 @@ fun App() {
                 Route.Search -> SearchScreen()
                 Route.Courses -> CoursesScreen()
                 Route.ImportTimetable -> ImportTimetableScreen()
-                Route.ImportBili -> ImportBiliScreen()
+                is Route.ImportBili -> ImportBiliScreen(r.courseId, r.mode)
                 is Route.CoverPicker -> CoverPickerScreen(r.target)
                 Route.Login -> LoginScreen()
                 Route.Logs -> LogScreen()
                 Route.Prompts -> PromptsScreen()
+                Route.Drive -> DriveScreen()
+                is Route.Book -> BookScreen(r.lectureId)
+                is Route.Materials -> MaterialsScreen(r.courseId)
             }
         }
         }

@@ -1,5 +1,6 @@
 package app.xuezhang.ui
 
+import androidx.compose.animation.core.animateFloat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -83,7 +84,10 @@ fun LiveScreen() {
     val list = rememberLazyListState()
     LaunchedEffect(segs.size, mode) { if (segs.isNotEmpty()) list.animateScrollToItem(segs.size + 2) }
     LaunchedEffect(Live.running.value) {
-        if (!Live.running.value && lid != null && Nav.stack.lastOrNull() == Route.Live) Nav.replace(Route.Generating(lid))
+        if (!Live.running.value && lid != null && Nav.stack.lastOrNull() == Route.Live) {
+            // 不足 30 秒的录音按误触作废：直接回去，不进「生成笔记」
+            if (Live.discarded.value == lid) Nav.pop() else Nav.replace(Route.Generating(lid))
+        }
     }
     val slide = course?.slides?.firstOrNull { it.page == Live.currentPage.intValue } ?: course?.slides?.firstOrNull()
 
@@ -234,7 +238,8 @@ fun GeneratingScreen(id: String) {
             BasicText("下课啦", style = T.Large.copy(fontSize = 34.sp))
             BasicText(if (l?.status == 3) "生成失败了，可以重试" else "学长正在整理这节课的笔记", style = T.Sub.copy(fontSize = 15.sp))
             Spacer(Modifier.height(30.dp))
-            val target = if (waitingChunks > 0) 0.08f else if (step >= 3) Live.genPct.floatValue.coerceAtLeast(0.3f) else step / 10f + 0.05f
+            val job = aiJob("notes:$id")
+            val target = if (waitingChunks > 0) 0.08f else job?.fraction?.floatValue ?: if (step >= 3) Live.genPct.floatValue.coerceAtLeast(0.3f) else step / 10f + 0.05f
             val p by animateFloatAsState(target, spring(0.8f, 60f), label = "p")
             Box(Modifier.size(136.dp), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
@@ -250,9 +255,15 @@ fun GeneratingScreen(id: String) {
                 BasicText(if (waitingChunks > 0) "整理最后 $waitingChunks 段录音…" else Live.genDetail.value.ifBlank { "准备中" }, style = T.Label.copy(color = C.Blue))
                 Spacer(Modifier.height(8.dp))
                 Box(Modifier.fillMaxWidth().height(6.dp).clip(Capsule()).background(Color(0x12000000))) {
-                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).fillMaxHeight().clip(Capsule()).background(C.Blue))
+                    val sh = androidx.compose.animation.core.rememberInfiniteTransition(label = "gsh").animateFloat(-0.3f, 1.3f, androidx.compose.animation.core.infiniteRepeatable(tween(1400)), label = "gshx")
+                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).fillMaxHeight().clip(Capsule()).background(C.Blue).then(if (Live.generating.value) Modifier.sheen(sh.value) else Modifier))
                 }
                 if (Live.genStream.value.isNotBlank() && Live.generating.value) BasicText(Live.genStream.value, Modifier.padding(top = 6.dp), style = T.Cap, maxLines = 1)
+                else if (job != null && Live.generating.value) BasicText("已用 ${job.elapsed.longValue / 1000}s · 模型思考中，进度按预计耗时估算", Modifier.padding(top = 6.dp), style = T.Cap, maxLines = 1)
+                if (job != null && Live.generating.value) androidx.compose.animation.Crossfade(job.tip.value, Modifier.padding(top = 10.dp), label = "gtip") { t ->
+                    BasicText(t, Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x0F0A72E8)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = T.Cap.copy(fontSize = 12.sp, color = C.HlBlue, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                }
                 if (l?.status == 3 || !Live.generating.value) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("简单" to 0, "详细" to 1).forEach { (n, d) ->
                         val on = (Live.genDepth ?: Store.settings.value.noteDepth) == d
@@ -324,6 +335,7 @@ fun SheetHost() {
                         Spacer(Modifier.height(6.dp))
                         MathBlock(s.tex, T.Body.copy(fontSize = 20.sp), scale = 1.2f)
                         if (explain != null) RichText(explain!!, style = T.Body.copy(fontSize = 15.sp))
+                        else if (loading) aiJob("formula")?.let { Spacer(Modifier.height(8.dp)); AiProgressBar(it) }
                         Spacer(Modifier.height(10.dp))
                         BasicText("LaTeX 源码", style = T.Cap)
                         Spacer(Modifier.height(4.dp))
@@ -339,12 +351,15 @@ fun SheetHost() {
                                 if (loading || explain != null) return@explain
                                 loading = true
                                 scope.launch {
+                                    val job = app.xuezhang.engine.AiProgress.start("formula", "讲解公式")
+                                    job.phase("学长在想怎么讲", 0.95f, 10_000)
                                     explain = try {
                                         withContext(Dispatchers.IO) {
                                             Api.chat("你是课堂学长，用朋友口吻、大白话解释公式含义，2~4 句。数学用 LaTeX \$...\$。可用 [b:概念] [r:考点] [o:助记] [u:强调] 标注。不要输出 JSON。",
                                                 "公式：${s.tex}\n上下文：${s.context.take(400)}", json = false)
                                         }
                                     } catch (e: Exception) { "解释失败：${e.message}" }
+                                    app.xuezhang.engine.AiProgress.finish(job, explain?.startsWith("解释失败") != true, null)
                                     loading = false
                                 }
                             }, Modifier.weight(1f), icon = "spark", tint = C.Blue)
@@ -363,6 +378,7 @@ fun SheetHost() {
                     is Sheet.Model -> ModelSheetContent(s.kind)
                     Sheet.Sync -> SyncSheetContent()
                     is Sheet.Answer -> AnswerSheetContent(s)
+                    is Sheet.Frames -> FramePickerContent(s)
                     null -> {}
                 }
                 Spacer(Modifier.height(6.dp))

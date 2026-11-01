@@ -39,6 +39,11 @@ object Sync {
                     if (f.isFile && added.add(name)) { z.putNextEntry(ZipEntry(name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry() }
                 }
             }
+            // 录播课笔记里的视频原画面截图
+            Store.lectures.forEach { l -> l.sections.forEach { s ->
+                val f = File(s.frame); val name = "files/frames/${f.name}"
+                if (s.frame.isNotBlank() && f.isFile && added.add(name)) { z.putNextEntry(ZipEntry(name)); f.inputStream().use { it.copyTo(z) }; z.closeEntry() }
+            } }
         }
         return bos.toByteArray()
     }
@@ -55,7 +60,7 @@ object Sync {
                 val n = e.name
                 when {
                     n == "data.json" -> json = JSONObject(z.readBytes().toString(Charsets.UTF_8))
-                    n.startsWith("files/covers/") || n.startsWith("files/slides/") -> {
+                    n.startsWith("files/covers/") || n.startsWith("files/slides/") || n.startsWith("files/frames/") -> {
                         val dir = File(ctx.filesDir, n.removePrefix("files/").substringBefore('/')).apply { mkdirs() }
                         val base = File(n).name
                         if (base.isNotBlank() && !base.contains("..")) {
@@ -70,10 +75,12 @@ object Sync {
     }
 
     /** 主线程调用：合并进本机数据。 */
-    fun apply(u: Unpacked): Pair<Int, Int> = Store.importBundle(u.json) { c: Course ->
+    fun apply(u: Unpacked): Pair<Int, Int> {
         fun fix(p: String) = u.files[File(p).name] ?: p
-        c.copy(cover = if (c.cover.startsWith("file:")) "file:" + fix(c.cover.removePrefix("file:")) else c.cover,
-            slidePath = if (c.slidePath.isNotBlank()) fix(c.slidePath) else "")
+        return Store.importBundle(u.json, { c: Course ->
+            c.copy(cover = if (c.cover.startsWith("file:")) "file:" + fix(c.cover.removePrefix("file:")) else c.cover,
+                slidePath = if (c.slidePath.isNotBlank()) fix(c.slidePath) else "")
+        }) { l -> l.copy(sections = l.sections.map { s -> if (s.frame.isNotBlank()) s.copy(frame = fix(s.frame)) else s }) }
     }
 
     // ---------------- SAF ----------------

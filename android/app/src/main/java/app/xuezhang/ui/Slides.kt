@@ -160,8 +160,10 @@ object SlideViewer { val open = mutableStateOf<Triple<String, Int, Int>?>(null) 
 
 @Composable
 fun SlideThumb(path: String, page: Int, modifier: Modifier = Modifier, widthPx: Int = 900, onClick: (() -> Unit)? = null) {
+    var loaded by remember(path, page) { androidx.compose.runtime.mutableStateOf(false) }
     val img by produceState<ImageBitmap?>(null, path, page) {
-        value = withContext(Dispatchers.IO) { SlideImages.render(path, page, widthPx)?.asImageBitmap() }
+        value = withContext(Dispatchers.IO) { runCatching { SlideImages.render(path, page, widthPx)?.asImageBitmap() }.getOrNull() }
+        loaded = true
     }
     Box(
         modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Color.White)
@@ -169,7 +171,7 @@ fun SlideThumb(path: String, page: Int, modifier: Modifier = Modifier, widthPx: 
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         img?.let { Image(it, "第 $page 页", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
-            ?: BasicText("第 $page 页", Modifier.align(Alignment.Center), style = T.Sub)
+            ?: if (loaded) BasicText("第 $page 页", Modifier.align(Alignment.Center), style = T.Sub) else Shimmer(Modifier.fillMaxSize())
         BasicText("P.$page", Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xCC1D1D1F))
             .padding(horizontal = 7.dp, vertical = 2.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp))
     }

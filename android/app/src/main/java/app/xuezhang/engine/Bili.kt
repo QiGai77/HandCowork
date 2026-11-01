@@ -205,11 +205,28 @@ object Bili {
         return out
     }
 
-    fun start(ctx: Context, info: Info, page: Page, course: Course, slideUri: Uri?, slideName: String?, localAudio: Uri? = null) {
+    /** 笔记来源字符串 bilibili:BV…:cid 里取 BV 号 / cid。 */
+    fun srcBv(src: String): String? = src.takeIf { it.startsWith("bilibili:") }?.removePrefix("bilibili:")?.substringBefore(':')
+    fun srcCid(src: String): Long? = src.takeIf { it.startsWith("bilibili:") }?.removePrefix("bilibili:")?.split(':')?.getOrNull(1)?.toLongOrNull()
+
+    private val EST = longArrayOf(30_000, 20_000, 120_000, 60_000, 120_000)
+
+    fun start(ctx: Context, info: Info, page: Page, course: Course, slideUri: Uri?, slideName: String?, localAudio: Uri? = null, isVideo: Boolean = false) {
         if (running) return
         error.value = null; step.intValue = 0; progress.floatValue = 0f; detail.value = ""
         val app = ctx.applicationContext
+        val aj = AiProgress.start("bili", "导入录播课")
         job = Live.scope.launch {
+            // 把分步状态同步到统一进度（灵动岛 + 进度条 + 小彩蛋）
+            val mirror = launch {
+                var last = -1
+                while (true) {
+                    val st = step.intValue
+                    if (st != last && st in 0..4) { aj.phase(STEPS[st], (st + 1) / 5f, EST[st]); last = st }
+                    if (st in 0..4) aj.sub(progress.floatValue, detail.value)
+                    kotlinx.coroutines.delay(250)
+                }
+            }
             try {
                 // 1 下载音轨
                 val dir = File(app.cacheDir, "bili").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
@@ -244,7 +261,7 @@ object Bili {
                 // 3 识别
                 step.intValue = 2; progress.floatValue = 0f
                 val lec = Lecture(courseId = c.id, title = page.part.ifBlank { info.title }.take(40), status = 1,
-                    durationMs = page.duration * 1000L, source = if (localAudio != null) "audio:${page.part}" else "bilibili:${info.bvid}")
+                    durationMs = page.duration * 1000L, source = when { localAudio == null -> "bilibili:${info.bvid}:${page.cid}"; isVideo -> "video:${page.part}"; else -> "audio:${page.part}" })
                 Store.upsertLecture(lec); lectureId.value = lec.id
                 val chunks = mutableListOf<Pair<File, Long>>()
                 if (subs == null) decodeToWavChunks(m4a, dir, 30, { f, s -> chunks.add(f to s) }, { progress.floatValue = it * 0.3f })
@@ -282,12 +299,23 @@ object Bili {
                 step.intValue = 4; progress.floatValue = 0.3f; detail.value = "学长在写图文笔记…"
                 Live.generateNow(lec.id)
                 if (Live.genError.value != null) throw ApiException(Live.genError.value!!)
+                // 视频课：每节笔记配上视频在那个时间点的原画面（不用 AI 生成图）
+                if (localAudio == null || isVideo) {
+                    progress.floatValue = 0.9f; detail.value = "按时间截取视频原画面"
+                    Store.lecture(lec.id)?.let { l ->
+                        val times = Frames.assignTimes(l.sections, l.segments, l.durationMs)
+                        val paths = if (localAudio != null) Frames.fromLocalVideo(app, m4a.absolutePath, lec.id, times) { progress.floatValue = 0.9f + 0.1f * it }
+                            else Frames.fromBilibili(app, info.bvid, page.cid, page.duration, lec.id, times) { progress.floatValue = 0.9f + 0.1f * it }
+                        Frames.apply(lec.id, times, paths)
+                        Log.ok("录播截图", "${paths.count { it.isNotBlank() }}/${times.size} 节配上了原视频截图")
+                    }
+                }
                 step.intValue = 5; progress.floatValue = 1f; detail.value = ""
-                Island.show("录播课笔记生成好了", Island.Kind.Done)
+                mirror.cancel(); AiProgress.finish(aj, true, "录播课笔记生成好了")
             } catch (e: Exception) {
                 error.value = e.message ?: "导入失败"
                 Log.err("导入录播课", e)
-                Island.show("导入失败", Island.Kind.Warn)
+                mirror.cancel(); AiProgress.finish(aj, false, "导入失败"); aj.error.value = e.message
             }
         }
     }
