@@ -76,13 +76,14 @@ fun Ambient(modifier: Modifier = Modifier) {
         fun blob(cx: Float, cy: Float, r: Float, c: Color) = drawCircle(
             androidx.compose.ui.graphics.Brush.radialGradient(listOf(c, c.copy(alpha = 0f)), Offset(cx, cy), r), r, Offset(cx, cy))
         val w = size.width; val h = size.height
-        blob(w * 0.05f, h * 0.10f, w * 0.75f, Color(0xFF8DB8FF).copy(alpha = 0.30f))
+        val k = if (ThemeState.dark) 0.45f else 1f
+        blob(w * 0.05f, h * 0.10f, w * 0.75f, Color(0xFF8DB8FF).copy(alpha = 0.30f * k))
         blob(w * 1.00f, h * 0.38f, w * 0.70f, Color(0xFFFFC08A).copy(alpha = 0.26f))
         blob(w * 0.10f, h * 0.70f, w * 0.65f, Color(0xFF9EE6B8).copy(alpha = 0.22f))
         blob(w * 0.90f, h * 0.95f, w * 0.70f, Color(0xFFC9B6FF).copy(alpha = 0.24f))
         val step = 18.dp.toPx(); val dot = 1.dp.toPx()
         var y = step / 2
-        while (y < h) { var x = step / 2; while (x < w) { drawCircle(Color(0x0F000000), dot, Offset(x, y)); x += step }; y += step }
+        while (y < h) { var x = step / 2; while (x < w) { drawCircle(if (ThemeState.dark) Color(0x12FFFFFF) else Color(0x0F000000), dot, Offset(x, y)); x += step }; y += step }
     }
 }
 
@@ -153,7 +154,7 @@ fun PlainCard(modifier: Modifier = Modifier, radius: Dp = 22.dp, padding: Paddin
     val shape = RoundedCornerShape(radius)
     val bg = LocalBg.current
     Column(
-        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = Color.White.copy(alpha = 0.58f), blurDp = 12f, lensH = 10f, lensA = 18f)
+        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = if (ThemeState.dark) Color(0xFF1C1E24).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.58f), blurDp = 12f, lensH = 10f, lensA = 18f)
         else modifier.shadow(10.dp, shape, ambientColor = Color(0x14000000), spotColor = Color(0x10000000)).background(C.Card, shape))
             .clip(shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)

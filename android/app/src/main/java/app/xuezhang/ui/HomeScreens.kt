@@ -1,5 +1,7 @@
 package app.xuezhang.ui
 
+import androidx.compose.foundation.layout.fillMaxHeight
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -8,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -157,6 +160,8 @@ fun HomeTab() {
                 }
             }
         }
+        item { BasicText("本周课表", Modifier.padding(start = 30.dp, top = 18.dp, bottom = 8.dp), style = T.Sub.copy(fontWeight = FontWeight.Medium)) }
+        item { WeekTable(wd) }
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp).fillMaxWidth().height(50.dp)
                 .glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.55f)).clip(Capsule())
@@ -444,7 +449,7 @@ fun BackBar(backdrop: com.kyant.backdrop.Backdrop, right: @Composable () -> Unit
 @Composable
 fun EditCourseScreen(id: String?) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = app.xuezhang.engine.Bg.scope
     val orig = id?.let { Store.course(it) }
     // 草稿放在 Nav 里：去选择封面/导入再回来不会丢
     if (Nav.draft.value == null || (id != null && Nav.draft.value?.id != id)) {
@@ -452,7 +457,7 @@ fun EditCourseScreen(id: String?) {
     }
     val c = Nav.draft.value!!
     fun upd(n: Course) { Nav.draft.value = n }
-    var parsing by remember { mutableStateOf<String?>(null) }
+    var parsing by app.xuezhang.engine.keep<String?>("edit.parsing") { null }
     var progress by remember { mutableStateOf(0f) }
     var menu by remember { mutableStateOf(false) }
     var addSlot by remember { mutableStateOf(false) }
@@ -621,5 +626,60 @@ private fun Stepper(v: Int, range: IntRange, onChange: (Int) -> Unit) {
         BasicText("−", Modifier.clickable { if (v > range.first) onChange(v - 1) }.padding(horizontal = 10.dp, vertical = 4.dp), style = T.Btn)
         BasicText("$v", style = T.Btn.copy(color = C.Blue))
         BasicText("+", Modifier.clickable { if (v < range.last) onChange(v + 1) }.padding(horizontal = 10.dp, vertical = 4.dp), style = T.Btn)
+    }
+}
+
+
+/** 五大节 × 七天玻璃课表：低饱和课程块，课名靠上、教室靠下，今天高亮。 */
+@Composable
+fun WeekTable(todayWd: Int) {
+    val big = listOf("1-2" to "08:00", "3-4" to "10:10", "5-6" to "14:00", "7-8" to "16:00", "9-12" to "19:00")
+    val cells = remember(Store.courses.toList()) {
+        val m = HashMap<Pair<Int, Int>, MutableList<Pair<Course, app.xuezhang.data.Slot>>>()
+        Store.courses.forEach { c -> c.slots.forEach { sl ->
+            if (sl.weekday in 1..7 && sl.start > 0) {
+                val from = ((sl.start - 1) / 2).coerceIn(0, 4); val to = ((maxOf(sl.end, sl.start) - 1) / 2).coerceIn(from, 4)
+                for (b in from..to) m.getOrPut(sl.weekday to b) { mutableListOf() }.add(c to sl)
+            }
+        } }
+        m
+    }
+    PlainCard(Modifier.padding(horizontal = 12.dp).fillMaxWidth(), radius = 26.dp, padding = androidx.compose.foundation.layout.PaddingValues(8.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.width(34.dp))
+            Schedule.WEEK.forEachIndexed { i, w ->
+                val on = i + 1 == todayWd
+                Box(Modifier.weight(1f).padding(2.dp).clip(Capsule()).background(if (on) C.Blue else Color.Transparent).padding(vertical = 5.dp), contentAlignment = Alignment.Center) {
+                    BasicText(w.removePrefix("周"), style = T.Cap.copy(color = if (on) Color.White else C.Sec, fontWeight = FontWeight.SemiBold))
+                }
+            }
+        }
+        big.forEachIndexed { b, (label, t0) ->
+            Row(Modifier.fillMaxWidth().height(78.dp)) {
+                Column(Modifier.width(34.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    BasicText("${b + 1}", style = T.Btn.copy(fontSize = 13.sp))
+                    BasicText(t0, style = T.Cap.copy(fontSize = 9.sp))
+                }
+                for (d in 1..7) {
+                    val list = cells[d to b]
+                    Box(Modifier.weight(1f).fillMaxHeight().padding(2.dp)) {
+                        if (list.isNullOrEmpty()) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(if (d == todayWd) C.Blue.copy(alpha = 0.04f) else C.Fill.copy(alpha = 0.35f)))
+                        else {
+                            val (c, sl) = list.first()
+                            val col = C.course[c.colorIdx % C.course.size]
+                            Column(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))
+                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(col.copy(alpha = 0.26f), col.copy(alpha = 0.14f))))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                .clickable { Nav.push(Route.CourseDetail(c.id)) }.padding(horizontal = 3.dp, vertical = 4.dp)) {
+                                BasicText(c.name, style = T.Cap.copy(color = C.Ink, fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                Spacer(Modifier.weight(1f))
+                                BasicText(sl.room.ifBlank { c.room }, style = T.Cap.copy(fontSize = 9.sp, lineHeight = 11.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (list.size > 1) Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(6.dp).clip(Capsule()).background(C.Orange))
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -144,12 +144,12 @@ fun KeyMissing(text: String) {
 @Composable
 fun ImportTimetableScreen() {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var img by remember { mutableStateOf<Bitmap?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var err by remember { mutableStateOf<String?>(null) }
-    var groups by remember { mutableStateOf<List<Schedule.Group>>(emptyList()) }
-    val picked = remember { mutableStateListOf<String>() }
+    val scope = app.xuezhang.engine.Bg.scope
+    var img by app.xuezhang.engine.keep<Bitmap?>("tt.img") { null }
+    var busy by app.xuezhang.engine.keep("tt.busy") { false }
+    var err by app.xuezhang.engine.keep<String?>("tt.err") { null }
+    var groups by app.xuezhang.engine.keep<List<Schedule.Group>>("tt.groups") { emptyList() }
+    val picked = app.xuezhang.engine.keepList<String>("tt.picked")
     val camFile = remember { File(ctx.cacheDir, "timetable.jpg") }
 
     fun recognize(b: Bitmap) {
@@ -267,6 +267,7 @@ fun ImportTimetableScreen() {
                     else Store.upsertCourse(nc)
                 }
                 Island.show("已导入 $n 门课", Island.Kind.Done)
+                app.xuezhang.engine.Bg.clear("tt.")
                 Nav.pop()
             }, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp).fillMaxWidth(),
                 tint = C.Blue.copy(alpha = 0.9f), color = Color.White, height = 54.dp)
@@ -289,7 +290,7 @@ private fun ScanLine() {
 @Composable
 fun CoverPickerScreen(target: String) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = app.xuezhang.engine.Bg.scope
     val course: Course? = if (target == "draft") Nav.draft.value else Store.course(target)
     if (course == null) { Nav.pop(); return }
     fun apply(cover: String) {
@@ -299,11 +300,11 @@ fun CoverPickerScreen(target: String) {
     val name = course.name.ifBlank { "新课程" }
     val current = course.cover
     val auto = CoverMatch.match(name)
-    var aiOpen by remember { mutableStateOf(false) }
-    var prompt by remember { mutableStateOf("$name 课程封面，扁平插画，${auto?.let { colorWord(it.color) } ?: "蓝色调"}，简洁，无文字") }
-    var gen by remember { mutableStateOf(false) }
-    var genErr by remember { mutableStateOf<String?>(null) }
-    val results = remember { mutableStateListOf<Bitmap>() }
+    var aiOpen by app.xuezhang.engine.keep("cover.open:$target") { false }
+    var prompt by app.xuezhang.engine.keep("cover.prompt:$target") { "$name 课程封面，扁平插画，${auto?.let { colorWord(it.color) } ?: "蓝色调"}，简洁，无文字" }
+    var gen by app.xuezhang.engine.keep("cover.gen:$target") { false }
+    var genErr by app.xuezhang.engine.keep<String?>("cover.err:$target") { null }
+    val results = app.xuezhang.engine.keepList<Bitmap>("cover.results:$target")
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         val b = decodeScaled(ctx, uri, 2000) ?: run { Island.show("读不了这张图", Island.Kind.Warn); return@rememberLauncherForActivityResult }
@@ -313,6 +314,14 @@ fun CoverPickerScreen(target: String) {
     GlassScaffold(content = {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp)) {
             item { TopInset(); PageHeader("选择封面", "已为常见课程预制，按课程名自动匹配") }
+            if (target != "draft") item {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(com.kyant.shapes.Capsule()).background(Brush2.ai)
+                    .clickable { Nav.push(Route.ImageStudio("course:$target")) }.padding(vertical = 13.dp),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon("sparkle", Color.White, 18.dp); Spacer(Modifier.width(8.dp))
+                    BasicText("AI 生成封面（可再次对话 / 框选修改）", style = T.Btn.copy(color = Color.White))
+                }
+            }
             val tiles = CoverMatch.PRESETS.map { it.key to "preset:${it.key}" } + listOf("通用" to "generic")
             tiles.chunked(3).forEach { row ->
                 item {
@@ -626,16 +635,13 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "新" to "Google Drive 连接器：我的 › 云同步里授权 Google 账号，查看 Drive 文件夹和每个文件的上传进度",
-        "新" to "所有 AI 生成（笔记、课表、课件、导图、录播课、问答、封面）都有进度条 + 灵动岛进度 + 小彩蛋",
-        "新" to "笔记库变成书架：每门课一层，每节笔记一本书，点开翻页阅读",
-        "新" to "上课页改成课程卡组，左右滑选课；下面是「资料上传」和红色「开始上课」",
-        "新" to "录播视频（B 站 / 本地视频）的笔记每节配视频原画面截图，B 站截图可以换一张",
-        "新" to "OpenAI / ChatGPT 用户笔记生成后自动画 AI 导图",
-        "修" to "录音不足 30 秒视为误触，自动作废，不再生成空笔记",
-        "修" to "课件页面加载时显示微光占位，不再空白",
+        "新" to "书架重做：每门课一层，书脊 + 最新一本封面朝外，配色按课程固定",
+        "新" to "书少时不再空荡：按课表摆出半透明「待写」书脊，上完一节就变成实书",
+        "新" to "笔记页可切换「书架 / 列表」，列表带课程筛选、生成进度和复习卡/考点标签",
+        "新" to "所有 AI 生成改为后台运行：课表识别、AI 封面、课件解析、导图、问学长、公式讲解，离开页面再回来进度和结果都在",
+        "修" to "离开页面会打断 AI 生成的问题",
     )
-    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7"
+    fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7.1"
     fun maybeShow(ctx: Context) {
         if (shownThisLaunch) return
         shownThisLaunch = true

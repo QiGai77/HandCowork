@@ -11,8 +11,8 @@ android {
         applicationId = "app.xuezhang"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.0.7"
+        versionCode = 10
+        versionName = "0.0.7.2"
         // Google Drive 云同步用的 OAuth 客户端（「桌面应用」类型）。也可以在 App 里「我的 › 云同步 › Google Drive」填写。
         // 编译时传入：./gradlew assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (project.findProperty("googleClientId")?.toString() ?: "") + "\"")

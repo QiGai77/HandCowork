@@ -42,6 +42,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.size
 import app.xuezhang.data.Lecture
 import app.xuezhang.data.Store
 import app.xuezhang.engine.Log
@@ -75,9 +76,9 @@ fun ConceptMapV6(l: Lecture) {
     val img = remember(l.id, ver) { runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull() }
     val job = aiJob("mindmap:${l.id}")
     val busy = job != null && !job.finished.value
-    var err by remember { mutableStateOf<String?>(null) }
+    var err by app.xuezhang.engine.keep<String?>("mindmap.err:${l.id}") { null }
     var showCode by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    val scope = app.xuezhang.engine.Bg.scope
     fun gen() {
         if (busy) return
         err = null
@@ -108,8 +109,13 @@ fun CardDeck(l: Lecture) {
     var idx by remember(l.id) { mutableIntStateOf(0) }
     val total = l.cards.size
     val scope = rememberCoroutineScope()
+    val styleIdx = Store.settings.value.cardStyle
+    val skin = Skins.card(styleIdx)
     Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         BasicText(if (idx < total) "第 ${idx + 1} / $total 张" else "全部过完", Modifier.weight(1f), style = T.Sub)
+        // 换卡面（10 种默认样式循环）
+        Box(Modifier.padding(end = 8.dp).size(26.dp).clip(com.kyant.shapes.Capsule()).background(skin.brush)
+            .clickable { Store.updateSettings(Store.settings.value.copy(cardStyle = (styleIdx + 1) % Skins.cards.size)) })
         BasicText("重来", Modifier.clip(com.kyant.shapes.Capsule()).background(C.Fill).clickable { idx = 0 }.padding(horizontal = 14.dp, vertical = 6.dp), style = T.Btn.copy(fontSize = 13.sp))
     }
     Box(Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth().height(380.dp), contentAlignment = Alignment.TopCenter) {
@@ -139,7 +145,7 @@ fun CardDeck(l: Lecture) {
                         rotationY = flip; cameraDistance = 14f * density
                     }
                     .shadow(if (depth == 0) 14.dp else 4.dp, RoundedCornerShape(28.dp), clip = false)
-                    .clip(RoundedCornerShape(28.dp)).background(if (flip > 90f) Color(0xFFF4F8FF) else Color.White)
+                    .clip(RoundedCornerShape(28.dp)).background(skin.brush).then(if (flip > 90f) Modifier.background(if (skin.dark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)) else Modifier)
                     .then(if (depth == 0) Modifier.pointerInput(i) {
                         detectDragGestures(
                             onDrag = { ch, d -> ch.consume(); scope.launch { dx.snapTo(dx.value + d.x) } },
@@ -150,13 +156,13 @@ fun CardDeck(l: Lecture) {
                     val back = flip > 90f
                     Column(Modifier.fillMaxSize().graphicsLayer { if (back) rotationY = 180f }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            BasicText(if (back) "答案" else "问题", Modifier.weight(1f), style = T.Sub)
+                            BasicText(if (back) "答案" else "问题", Modifier.weight(1f), style = T.Sub.copy(color = skin.sub))
                             Tag(card.tag, when (card.tag) { "概念" -> C.HlBlue; "易错" -> C.HlOrange; else -> C.HlRed })
                         }
                         Spacer(Modifier.height(14.dp))
-                        if (depth == 0) RichText(if (back) card.a else card.q, style = T.Body.copy(fontSize = 17.sp, lineHeight = 28.sp))
+                        if (depth == 0) RichText(if (back) card.a else card.q, style = T.Body.copy(fontSize = 17.sp, lineHeight = 28.sp, color = skin.ink))
                         Spacer(Modifier.weight(1f))
-                        if (depth == 0) BasicText(if (back) "右滑 记得 · 左滑 忘了" else "点按翻面 · 左右滑切换", Modifier.fillMaxWidth(), style = T.Cap.copy(textAlign = TextAlign.Center))
+                        if (depth == 0) BasicText(if (back) "右滑 记得 · 左滑 忘了" else "点按翻面 · 左右滑切换", Modifier.fillMaxWidth(), style = T.Cap.copy(textAlign = TextAlign.Center, color = skin.sub))
                     }
                 }
             }

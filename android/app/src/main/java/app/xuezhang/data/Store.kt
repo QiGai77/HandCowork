@@ -70,6 +70,9 @@ data class Lecture(
     val status: Int = 0, // 0 recording 1 generating 2 done 3 failed
     val sections: List<NoteSection> = emptyList(),
     val source: String = "",
+    val lying: Boolean = false,         // 书架上侧放（平躺）展示
+    val coverStyle: Int = -1,           // 万能封面样式 0..9，-1 按 id 自动
+    val coverImg: String = "",          // AI 生成的封面图（本地路径）
 )
 
 data class Settings(
@@ -102,6 +105,12 @@ data class Settings(
     val gClientSecret: String = "",     // 「桌面应用」类型客户端附带的 secret（Google 视其为非机密，可留空）
     val gFolderId: String = "",         // Drive 上「课堂学长备份」文件夹 id
     val gLastSync: Long = 0,
+    val theme: Int = 0,                 // 0 跟随系统 1 浅色 2 深色
+    val shelfFold: Boolean = false,     // 书架折叠成一行
+    val cardStyle: Int = 0,             // 复习卡样式 0..9
+    val ghClientId: String = "",        // GitHub OAuth App 的 Client ID（设备码流程）
+    val ghToken: String = "",
+    val ghUser: String = "",
 )
 
 object Store {
@@ -173,7 +182,7 @@ object Store {
         .put("cards", JSONArray().also { a -> cards.forEach { a.put(JSONObject().put("q", it.q).put("a", it.a).put("t", it.tag).put("lv", it.level)) } })
         .put("st", if (status == 0 || status == 1) 3 else status)
         .put("secs", JSONArray().also { a -> sections.forEach { a.put(JSONObject().put("t", it.title).put("p", JSONArray(it.pages)).put("b", it.body).put("at", it.atMs).put("fr", it.frame)) } })
-        .put("src", source)
+        .put("src", source).put("ly", lying).put("cst", coverStyle).put("cim", coverImg)
     fun JSONObject.lec(): Lecture {
         fun arr(k: String) = optJSONArray(k) ?: JSONArray()
         fun <T> JSONArray.map(f: (JSONObject) -> T) = (0 until length()).map { f(getJSONObject(it)) }
@@ -184,7 +193,7 @@ object Store {
             arr("cards").map { Card(it.optString("q"), it.optString("a"), it.optString("t", "考点"), it.optInt("lv")) },
             optInt("st", 2),
             arr("secs").map { o -> NoteSection(o.optString("t"), o.optJSONArray("p")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(), o.optString("b"), o.optLong("at", -1), o.optString("fr")) },
-            optString("src"))
+            optString("src"), optBoolean("ly"), optInt("cst", -1), optString("cim"))
     }
     private fun Settings.j() = JSONObject().put("ab", asrBase).put("ak", asrKey).put("am", asrModel).put("lb", llmBase)
         .put("lk", llmKey).put("lm", llmModel).put("dm", defaultMode).put("cs", chunkSec).put("cf", confirmFill).put("lx", latex)
@@ -193,6 +202,7 @@ object Store {
         .put("dp", davPass).put("ls", lastSync).put("nd", noteDepth)
         .put("po", JSONObject().also { o -> promptOverrides.forEach { (k, v) -> o.put(k, v) } })
         .put("gc", gClientId).put("gs", gClientSecret).put("gf", gFolderId).put("gl", gLastSync)
+        .put("th", theme).put("sf", shelfFold).put("cds", cardStyle).put("ghc", ghClientId).put("ght", ghToken).put("ghu", ghUser)
     private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
@@ -200,7 +210,8 @@ object Store {
         optString("pv", d.provider), optString("sh"), optString("acc"), optInt("tt"), optInt("demo"),
         optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls"), optInt("nd", 1),
         optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap(),
-        optString("gc"), optString("gs"), optString("gf"), optLong("gl")) }
+        optString("gc"), optString("gs"), optString("gf"), optLong("gl"),
+        optInt("th"), optBoolean("sf"), optInt("cds"), optString("ghc"), optString("ght"), optString("ghu")) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())

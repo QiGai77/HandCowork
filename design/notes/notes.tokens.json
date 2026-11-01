@@ -1,0 +1,1345 @@
+{
+  "$description": "课堂学长 · 笔记模块 token（v0.0.9 改版）。单位 dp/sp，画布 393dp。",
+  "color": {
+    "bg": {
+      "top": {
+        "$value": "#FEF9E6",
+        "$type": "color"
+      },
+      "mid": {
+        "$value": "#F6F1E9",
+        "$type": "color"
+      },
+      "bottom": {
+        "$value": "#EAE7EE",
+        "$type": "color"
+      },
+      "dot": {
+        "$value": "#0000000F",
+        "$type": "color"
+      }
+    },
+    "ink": {
+      "primary": {
+        "$value": "#1A1A1A",
+        "$type": "color"
+      },
+      "secondary": {
+        "$value": "#78766B",
+        "$type": "color"
+      },
+      "tertiary": {
+        "$value": "#8B8784",
+        "$type": "color"
+      },
+      "count": {
+        "$value": "#837E79",
+        "$type": "color"
+      },
+      "onDark": {
+        "$value": "#F6F6F6",
+        "$type": "color"
+      },
+      "onDarkSec": {
+        "$value": "#FFFFFF8C",
+        "$type": "color"
+      }
+    },
+    "glass": {
+      "card": {
+        "$value": "#FFFFFF9E",
+        "$type": "color"
+      },
+      "cardBorder": {
+        "$value": "#FFFFFFB3",
+        "$type": "color"
+      },
+      "sheet": {
+        "$value": "#FFFFFFB8",
+        "$type": "color"
+      },
+      "board": {
+        "$value": "#FFFFFF8C",
+        "$type": "color"
+      },
+      "boardEdge": {
+        "$value": "#C6B69F66",
+        "$type": "color"
+      },
+      "nav": {
+        "$value": "#F2F1F6CC",
+        "$type": "color"
+      },
+      "navActive": {
+        "$value": "#C7DBDC",
+        "$type": "color"
+      },
+      "button": {
+        "$value": "#FFFFFFCC",
+        "$type": "color"
+      }
+    },
+    "segment": {
+      "track": {
+        "$value": "#0000000F",
+        "$type": "color"
+      },
+      "thumb": {
+        "$value": "#FCFCFC",
+        "$type": "color"
+      },
+      "on": {
+        "$value": "#111111",
+        "$type": "color"
+      },
+      "off": {
+        "$value": "#8B8784",
+        "$type": "color"
+      }
+    },
+    "chip": {
+      "allBg": {
+        "$value": "#F8F8F3",
+        "$type": "color"
+      },
+      "allText": {
+        "$value": "#111111",
+        "$type": "color"
+      },
+      "text": {
+        "$value": "#FFFFFF",
+        "$type": "color"
+      },
+      "badgeBg": {
+        "$value": "#D9D7D2",
+        "$type": "color"
+      },
+      "badgeText": {
+        "$value": "#6E6B66",
+        "$type": "color"
+      }
+    },
+    "tag": {
+      "bg": {
+        "$value": "#0000000D",
+        "$type": "color"
+      },
+      "text": {
+        "$value": "#111111",
+        "$type": "color"
+      }
+    },
+    "progress": {
+      "track": {
+        "$value": "#D1CFDC",
+        "$type": "color"
+      },
+      "g0": {
+        "$value": "#BBE7E8",
+        "$type": "color"
+      },
+      "g1": {
+        "$value": "#ADCEED",
+        "$type": "color"
+      },
+      "g2": {
+        "$value": "#BAAFF4",
+        "$type": "color"
+      },
+      "spark": {
+        "$value": "#FFF4E0",
+        "$type": "color"
+      }
+    },
+    "course": {
+      "green": {
+        "spine": {
+          "$value": "#4C906B",
+          "$type": "color"
+        },
+        "cover": {
+          "$value": "#498C6B",
+          "$type": "color"
+        },
+        "chip": {
+          "$value": "#3F8762",
+          "$type": "color"
+        },
+        "deep": {
+          "$value": "#1F5F3F",
+          "$type": "color"
+        }
+      },
+      "blue": {
+        "spine": {
+          "$value": "#4B607B",
+          "$type": "color"
+        },
+        "cover": {
+          "$value": "#3A5475",
+          "$type": "color"
+        },
+        "chip": {
+          "$value": "#325072",
+          "$type": "color"
+        },
+        "deep": {
+          "$value": "#14284A",
+          "$type": "color"
+        }
+      },
+      "rust": {
+        "spine": {
+          "$value": "#B06953",
+          "$type": "color"
+        },
+        "cover": {
+          "$value": "#A65F4B",
+          "$type": "color"
+        },
+        "chip": {
+          "$value": "#AA5F48",
+          "$type": "color"
+        },
+        "deep": {
+          "$value": "#8A3C25",
+          "$type": "color"
+        }
+      }
+    },
+    "gold": {
+      "line": {
+        "$value": "#D4B06A",
+        "$type": "color"
+      },
+      "shade": {
+        "$value": "#A8823E",
+        "$type": "color"
+      },
+      "icon": {
+        "$value": "#E2C88A",
+        "$type": "color"
+      }
+    },
+    "reader": {
+      "paper": {
+        "$value": "#F7F0DE",
+        "$type": "color"
+      },
+      "paperEdge": {
+        "$value": "#E9DEC2",
+        "$type": "color"
+      },
+      "gutter": {
+        "$value": "#00000014",
+        "$type": "color"
+      },
+      "text": {
+        "$value": "#2A271E",
+        "$type": "color"
+      },
+      "heading": {
+        "$value": "#111111",
+        "$type": "color"
+      },
+      "caption": {
+        "$value": "#8E8A7E",
+        "$type": "color"
+      },
+      "hlText": {
+        "$value": "#2F79A8",
+        "$type": "color"
+      },
+      "hlBg": {
+        "$value": "#D6E9F5",
+        "$type": "color"
+      },
+      "examText": {
+        "$value": "#A6352A",
+        "$type": "color"
+      },
+      "examBg": {
+        "$value": "#F6D9D2",
+        "$type": "color"
+      },
+      "ornament": {
+        "$value": "#B9AE95",
+        "$type": "color"
+      },
+      "scrubTrack": {
+        "$value": "#FFFFFFB3",
+        "$type": "color"
+      },
+      "tick": {
+        "$value": "#B8B4C2",
+        "$type": "color"
+      },
+      "knob": {
+        "$value": "#E7E9EC",
+        "$type": "color"
+      }
+    },
+    "organize": {
+      "done": {
+        "$value": "#3B886D",
+        "$type": "color"
+      },
+      "active": {
+        "$value": "#4FA684",
+        "$type": "color"
+      },
+      "pending": {
+        "$value": "#C9C9CE",
+        "$type": "color"
+      },
+      "connector": {
+        "$value": "#C9C9CE",
+        "$type": "color"
+      },
+      "barTrack": {
+        "$value": "#DCE3DC",
+        "$type": "color"
+      },
+      "bar0": {
+        "$value": "#3FA27C",
+        "$type": "color"
+      },
+      "bar1": {
+        "$value": "#7FD3B0",
+        "$type": "color"
+      },
+      "quoteBg": {
+        "$value": "#FFFFFFB3",
+        "$type": "color"
+      }
+    },
+    "island": {
+      "bg": {
+        "$value": "#000000",
+        "$type": "color"
+      },
+      "select": {
+        "$value": "#4FA684",
+        "$type": "color"
+      },
+      "applyBg": {
+        "$value": "#FFFFFF",
+        "$type": "color"
+      },
+      "applyText": {
+        "$value": "#000000",
+        "$type": "color"
+      },
+      "discardBg": {
+        "$value": "#3A3A3C",
+        "$type": "color"
+      },
+      "discardText": {
+        "$value": "#FFFFFF",
+        "$type": "color"
+      }
+    },
+    "navTab": {
+      "active": {
+        "$value": "#5696AB",
+        "$type": "color"
+      },
+      "inactive": {
+        "$value": "#101011",
+        "$type": "color"
+      }
+    }
+  },
+  "typography": {
+    "pageTitle": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 700,
+        "fontSize": 46,
+        "lineHeight": 52
+      },
+      "$type": "typography"
+    },
+    "pageSub": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 20,
+        "color": "ink.secondary"
+      },
+      "$type": "typography"
+    },
+    "segment": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 600,
+        "fontSize": 15,
+        "lineHeight": 20
+      },
+      "$type": "typography"
+    },
+    "chip": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 14,
+        "lineHeight": 18
+      },
+      "$type": "typography"
+    },
+    "chipBadge": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 600,
+        "fontSize": 10,
+        "lineHeight": 12
+      },
+      "$type": "typography"
+    },
+    "cardTitle": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 700,
+        "fontSize": 18,
+        "lineHeight": 24
+      },
+      "$type": "typography"
+    },
+    "cardBody": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 13.5,
+        "lineHeight": 19
+      },
+      "$type": "typography"
+    },
+    "cardDate": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 13,
+        "lineHeight": 18
+      },
+      "$type": "typography"
+    },
+    "tag": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 12.5,
+        "lineHeight": 16
+      },
+      "$type": "typography"
+    },
+    "progressLabel": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 12.5,
+        "lineHeight": 16
+      },
+      "$type": "typography"
+    },
+    "shelfSection": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 700,
+        "fontSize": 20,
+        "lineHeight": 26
+      },
+      "$type": "typography"
+    },
+    "shelfCount": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 20,
+        "color": "ink.count"
+      },
+      "$type": "typography"
+    },
+    "spine": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 600,
+        "fontSize": 12.5,
+        "lineHeight": 15
+      },
+      "$type": "typography"
+    },
+    "spineDate": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 5.5,
+        "lineHeight": 7
+      },
+      "$type": "typography"
+    },
+    "readerNav": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 700,
+        "fontSize": 18,
+        "lineHeight": 24
+      },
+      "$type": "typography"
+    },
+    "chapter": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 700,
+        "fontSize": 20,
+        "lineHeight": 28
+      },
+      "$type": "typography"
+    },
+    "readerBody": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 24
+      },
+      "$type": "typography"
+    },
+    "readerCaption": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 11,
+        "lineHeight": 14
+      },
+      "$type": "typography"
+    },
+    "scrubLabel": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 11,
+        "lineHeight": 14
+      },
+      "$type": "typography"
+    },
+    "toolbar": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 11,
+        "lineHeight": 14
+      },
+      "$type": "typography"
+    },
+    "sheetTitle": {
+      "$value": {
+        "fontFamily": "serif",
+        "fontWeight": 700,
+        "fontSize": 24,
+        "lineHeight": 30
+      },
+      "$type": "typography"
+    },
+    "step": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 17,
+        "lineHeight": 22
+      },
+      "$type": "typography"
+    },
+    "stepMeta": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 13,
+        "lineHeight": 18
+      },
+      "$type": "typography"
+    },
+    "quote": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 13.5,
+        "lineHeight": 19
+      },
+      "$type": "typography"
+    },
+    "islandTitle": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 600,
+        "fontSize": 15,
+        "lineHeight": 20
+      },
+      "$type": "typography"
+    },
+    "islandMeta": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 13,
+        "lineHeight": 18
+      },
+      "$type": "typography"
+    },
+    "islandHint": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 400,
+        "fontSize": 12,
+        "lineHeight": 16
+      },
+      "$type": "typography"
+    },
+    "islandBtn": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 600,
+        "fontSize": 15,
+        "lineHeight": 20
+      },
+      "$type": "typography"
+    },
+    "nav": {
+      "$value": {
+        "fontFamily": "sans",
+        "fontWeight": 500,
+        "fontSize": 10.5,
+        "lineHeight": 13
+      },
+      "$type": "typography"
+    }
+  },
+  "dimension": {
+    "screen": {
+      "padH": {
+        "$value": 24,
+        "$type": "dimension"
+      },
+      "titleTop": {
+        "$value": 52,
+        "$type": "dimension"
+      },
+      "subGap": {
+        "$value": 4,
+        "$type": "dimension"
+      },
+      "listTop": {
+        "$value": 220,
+        "$type": "dimension"
+      }
+    },
+    "segment": {
+      "w": {
+        "$value": 150,
+        "$type": "dimension"
+      },
+      "h": {
+        "$value": 40,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 20,
+        "$type": "dimension"
+      },
+      "inset": {
+        "$value": 3,
+        "$type": "dimension"
+      },
+      "thumbW": {
+        "$value": 72,
+        "$type": "dimension"
+      }
+    },
+    "chip": {
+      "h": {
+        "$value": 28,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "padH": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "gap": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "dot": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "dotGap": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "badge": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "badgeOffX": {
+        "$value": -2,
+        "$type": "dimension"
+      },
+      "badgeOffY": {
+        "$value": -6,
+        "$type": "dimension"
+      },
+      "rowTop": {
+        "$value": 170,
+        "$type": "dimension"
+      }
+    },
+    "card": {
+      "minH": {
+        "$value": 87,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 16,
+        "$type": "dimension"
+      },
+      "pad": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "gap": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "thumbW": {
+        "$value": 56,
+        "$type": "dimension"
+      },
+      "thumbH": {
+        "$value": 66,
+        "$type": "dimension"
+      },
+      "thumbR": {
+        "$value": 3,
+        "$type": "dimension"
+      },
+      "thumbGap": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "titleBodyGap": {
+        "$value": 4,
+        "$type": "dimension"
+      },
+      "extraTop": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "border": {
+        "$value": 1,
+        "$type": "dimension"
+      }
+    },
+    "tag": {
+      "h": {
+        "$value": 24,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "padH": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "gap": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "icon": {
+        "$value": 13,
+        "$type": "dimension"
+      }
+    },
+    "progress": {
+      "h": {
+        "$value": 4,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 2,
+        "$type": "dimension"
+      },
+      "labelGap": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "spark": {
+        "$value": 12,
+        "$type": "dimension"
+      }
+    },
+    "shelf": {
+      "firstTop": {
+        "$value": 196,
+        "$type": "dimension"
+      },
+      "pitch": {
+        "$value": 194,
+        "$type": "dimension"
+      },
+      "headerH": {
+        "$value": 26,
+        "$type": "dimension"
+      },
+      "dot": {
+        "$value": 7,
+        "$type": "dimension"
+      },
+      "dotGap": {
+        "$value": 9,
+        "$type": "dimension"
+      },
+      "headerToBooks": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "bookAreaH": {
+        "$value": 124,
+        "$type": "dimension"
+      },
+      "spineW": {
+        "$value": 23,
+        "$type": "dimension"
+      },
+      "spineGap": {
+        "$value": 1,
+        "$type": "dimension"
+      },
+      "spineR": {
+        "$value": 3,
+        "$type": "dimension"
+      },
+      "leanDeg": {
+        "$value": -12,
+        "$type": "dimension"
+      },
+      "band1": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "band2": {
+        "$value": 13,
+        "$type": "dimension"
+      },
+      "bandH": {
+        "$value": 1.5,
+        "$type": "dimension"
+      },
+      "coverW": {
+        "$value": 90,
+        "$type": "dimension"
+      },
+      "coverH": {
+        "$value": 116,
+        "$type": "dimension"
+      },
+      "coverR": {
+        "$value": 4,
+        "$type": "dimension"
+      },
+      "coverX": {
+        "$value": 268,
+        "$type": "dimension"
+      },
+      "coverIcon": {
+        "$value": 32,
+        "$type": "dimension"
+      },
+      "coverBandFromBottom": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "ribbonW": {
+        "$value": 9,
+        "$type": "dimension"
+      },
+      "ribbonH": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "boardH": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "boardR": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "boardInsetH": {
+        "$value": 36,
+        "$type": "dimension"
+      },
+      "spineLeft": {
+        "$value": 50,
+        "$type": "dimension"
+      },
+      "maxSpines": {
+        "$value": 5,
+        "$type": "dimension"
+      }
+    },
+    "reader": {
+      "backSize": {
+        "$value": 38,
+        "$type": "dimension"
+      },
+      "backTop": {
+        "$value": 58,
+        "$type": "dimension"
+      },
+      "navTop": {
+        "$value": 62,
+        "$type": "dimension"
+      },
+      "bookTop": {
+        "$value": 138,
+        "$type": "dimension"
+      },
+      "bookBottom": {
+        "$value": 680,
+        "$type": "dimension"
+      },
+      "cloth": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "pagePadH": {
+        "$value": 34,
+        "$type": "dimension"
+      },
+      "chapterTop": {
+        "$value": 52,
+        "$type": "dimension"
+      },
+      "ornamentW": {
+        "$value": 200,
+        "$type": "dimension"
+      },
+      "slideW": {
+        "$value": 248,
+        "$type": "dimension"
+      },
+      "slideH": {
+        "$value": 178,
+        "$type": "dimension"
+      },
+      "slideFrame": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "slideR": {
+        "$value": 2,
+        "$type": "dimension"
+      },
+      "captionGap": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "bodyTop": {
+        "$value": 26,
+        "$type": "dimension"
+      },
+      "paraGap": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "indentEm": {
+        "$value": 2,
+        "$type": "dimension"
+      },
+      "ribbonW": {
+        "$value": 30,
+        "$type": "dimension"
+      },
+      "ribbonH": {
+        "$value": 22,
+        "$type": "dimension"
+      },
+      "ribbonX": {
+        "$value": 62,
+        "$type": "dimension"
+      },
+      "curlW": {
+        "$value": 70,
+        "$type": "dimension"
+      }
+    },
+    "scrub": {
+      "thumbW": {
+        "$value": 84,
+        "$type": "dimension"
+      },
+      "thumbH": {
+        "$value": 58,
+        "$type": "dimension"
+      },
+      "popR": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "popPad": {
+        "$value": 6,
+        "$type": "dimension"
+      },
+      "trackW": {
+        "$value": 350,
+        "$type": "dimension"
+      },
+      "trackH": {
+        "$value": 26,
+        "$type": "dimension"
+      },
+      "trackR": {
+        "$value": 13,
+        "$type": "dimension"
+      },
+      "tickStep": {
+        "$value": 9,
+        "$type": "dimension"
+      },
+      "tickH": {
+        "$value": 8,
+        "$type": "dimension"
+      },
+      "tickMajorH": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "knob": {
+        "$value": 16,
+        "$type": "dimension"
+      },
+      "top": {
+        "$value": 730,
+        "$type": "dimension"
+      }
+    },
+    "toolbar": {
+      "h": {
+        "$value": 48,
+        "$type": "dimension"
+      },
+      "icon": {
+        "$value": 22,
+        "$type": "dimension"
+      },
+      "labelGap": {
+        "$value": 2,
+        "$type": "dimension"
+      },
+      "bottom": {
+        "$value": 18,
+        "$type": "dimension"
+      }
+    },
+    "sheet": {
+      "w": {
+        "$value": 256,
+        "$type": "dimension"
+      },
+      "x": {
+        "$value": 76,
+        "$type": "dimension"
+      },
+      "top": {
+        "$value": 368,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 24,
+        "$type": "dimension"
+      },
+      "pad": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "blur": {
+        "$value": 24,
+        "$type": "dimension"
+      },
+      "stepH": {
+        "$value": 34,
+        "$type": "dimension"
+      },
+      "stepIcon": {
+        "$value": 14,
+        "$type": "dimension"
+      },
+      "stepIconGap": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "connector": {
+        "$value": 2,
+        "$type": "dimension"
+      },
+      "ring": {
+        "$value": 20,
+        "$type": "dimension"
+      },
+      "ringStroke": {
+        "$value": 3,
+        "$type": "dimension"
+      },
+      "barH": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "barR": {
+        "$value": 5,
+        "$type": "dimension"
+      },
+      "barTop": {
+        "$value": 16,
+        "$type": "dimension"
+      },
+      "quoteR": {
+        "$value": 12,
+        "$type": "dimension"
+      },
+      "quotePad": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "quoteTop": {
+        "$value": 14,
+        "$type": "dimension"
+      }
+    },
+    "island": {
+      "collapsedW": {
+        "$value": 118,
+        "$type": "dimension"
+      },
+      "collapsedH": {
+        "$value": 36,
+        "$type": "dimension"
+      },
+      "w": {
+        "$value": 372,
+        "$type": "dimension"
+      },
+      "x": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "top": {
+        "$value": 126,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 30,
+        "$type": "dimension"
+      },
+      "pad": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "thumbW": {
+        "$value": 78,
+        "$type": "dimension"
+      },
+      "thumbH": {
+        "$value": 76,
+        "$type": "dimension"
+      },
+      "thumbR": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "thumbGap": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "selectStroke": {
+        "$value": 2.5,
+        "$type": "dimension"
+      },
+      "check": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "btnW": {
+        "$value": 72,
+        "$type": "dimension"
+      },
+      "btnH": {
+        "$value": 34,
+        "$type": "dimension"
+      },
+      "btnR": {
+        "$value": 17,
+        "$type": "dimension"
+      },
+      "btnGap": {
+        "$value": 10,
+        "$type": "dimension"
+      },
+      "hintTop": {
+        "$value": 12,
+        "$type": "dimension"
+      }
+    },
+    "nav": {
+      "h": {
+        "$value": 64,
+        "$type": "dimension"
+      },
+      "r": {
+        "$value": 32,
+        "$type": "dimension"
+      },
+      "insetH": {
+        "$value": 18,
+        "$type": "dimension"
+      },
+      "bottom": {
+        "$value": 22,
+        "$type": "dimension"
+      },
+      "barW": {
+        "$value": 280,
+        "$type": "dimension"
+      },
+      "pillW": {
+        "$value": 68,
+        "$type": "dimension"
+      },
+      "pillH": {
+        "$value": 52,
+        "$type": "dimension"
+      },
+      "search": {
+        "$value": 64,
+        "$type": "dimension"
+      },
+      "icon": {
+        "$value": 24,
+        "$type": "dimension"
+      }
+    }
+  },
+  "shadow": {
+    "card": {
+      "$value": {
+        "y": 4,
+        "blur": 16,
+        "color": "#3C325014"
+      },
+      "$type": "shadow"
+    },
+    "segment": {
+      "$value": {
+        "y": 2,
+        "blur": 6,
+        "color": "#0000001F"
+      },
+      "$type": "shadow"
+    },
+    "book": {
+      "$value": {
+        "y": 3,
+        "blur": 6,
+        "color": "#00000033"
+      },
+      "$type": "shadow"
+    },
+    "cover": {
+      "$value": {
+        "y": 6,
+        "blur": 14,
+        "color": "#00000038"
+      },
+      "$type": "shadow"
+    },
+    "board": {
+      "$value": {
+        "y": 8,
+        "blur": 14,
+        "color": "#5A4A3026"
+      },
+      "$type": "shadow"
+    },
+    "sheet": {
+      "$value": {
+        "y": 18,
+        "blur": 40,
+        "color": "#2A204026"
+      },
+      "$type": "shadow"
+    },
+    "island": {
+      "$value": {
+        "y": 12,
+        "blur": 30,
+        "color": "#00000040"
+      },
+      "$type": "shadow"
+    },
+    "nav": {
+      "$value": {
+        "y": 8,
+        "blur": 24,
+        "color": "#2A20401F"
+      },
+      "$type": "shadow"
+    }
+  },
+  "motion": {
+    "segment": {
+      "$value": {
+        "type": "spring",
+        "damping": 0.8,
+        "stiffness": 380
+      },
+      "$type": "transition"
+    },
+    "pageTurn": {
+      "$value": {
+        "type": "tween",
+        "ms": 420,
+        "easing": "cubic(0.3,0,0.2,1)"
+      },
+      "$type": "transition"
+    },
+    "shelfPress": {
+      "$value": {
+        "type": "spring",
+        "scale": 0.96,
+        "liftY": -6
+      },
+      "$type": "transition"
+    },
+    "island": {
+      "$value": {
+        "type": "spring",
+        "damping": 0.75,
+        "stiffness": 300
+      },
+      "$type": "transition"
+    },
+    "spark": {
+      "$value": {
+        "type": "loop",
+        "ms": 1600
+      },
+      "$type": "transition"
+    }
+  }
+}

@@ -131,7 +131,7 @@ object MeState {
 }
 
 @Composable
-fun SettingsTab() {
+fun SettingsAdvancedList() {
     val s = Store.settings.value
     fun set(n: Settings) { Store.updateSettings(n) }
     val scope = rememberCoroutineScope()
@@ -139,7 +139,8 @@ fun SettingsTab() {
     val lectures = Store.lectures
     LaunchedEffect(s.llmKey, s.llmBase) { MeState.balance.value = withContext(Dispatchers.IO) { Api.balance() } }
 
-    fun runTest(target: Int) {
+    fun runTest(target: Int) = meRunTest(target, scope, ctx)
+    fun runTestOld(target: Int) {
         if (MeState.testing.value >= 0) return
         MeState.testing.value = target; MeState.streamText.value = ""
         scope.launch {
@@ -169,7 +170,7 @@ fun SettingsTab() {
     }
 
     LazyColumn(Modifier.fillMaxWidth()) {
-        item { TopInset(); LargeHeader(null, "我的") }
+        item { TopInset(); PageHeader("全部设置", "模型、转写、账号与数据") }
         item { AccountCard(s.account, lectures.size, lectures.sumOf { it.durationMs }) }
         item { SectionLabel("模型") }
         item {
