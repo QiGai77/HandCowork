@@ -645,66 +645,52 @@ fun QuotaBars(auth: String) {
     }
 }
 
-// =================== 登录（仅界面：登录后端未接入，测试版只在本机） ===================
+// =================== 登录与注册（只支持邮箱登录，支持官方服务邮箱 qigai730@gmail.com） ===================
 @Composable
 fun LoginScreen() {
-    var phone by remember { mutableStateOf("") }
-    var code by remember { mutableStateOf("") }
-    var agree by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf(Store.settings.value.userEmail.ifBlank { Store.settings.value.account.takeIf { it.contains("@") } ?: "" }) }
+    var agree by remember { mutableStateOf(true) }
     GlassScaffold(content = {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars)
             .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(96.dp))
+            Spacer(Modifier.height(80.dp))
             Box(Modifier.size(84.dp).shadow(10.dp, RoundedCornerShape(26.dp)).clip(RoundedCornerShape(26.dp)).background(Color.White), contentAlignment = Alignment.Center) {
                 BasicText("学", style = T.Large.copy(fontSize = 40.sp))
             }
             Spacer(Modifier.height(16.dp))
-            BasicText("课堂学长", style = T.Large.copy(fontSize = 34.sp))
-            BasicText("把老师讲的，变成你记得住的", style = T.Sub.copy(fontSize = 15.sp))
-            Spacer(Modifier.height(28.dp))
-            PlainCard(Modifier.fillMaxWidth(), radius = 32.dp, padding = PaddingValues(18.dp)) {
+            BasicText("邮箱登录 / 绑定", style = T.Large.copy(fontSize = 32.sp))
+            BasicText("仅支持邮箱注册登录，数据安全保存在本机", style = T.Sub.copy(fontSize = 14.5.sp))
+            Spacer(Modifier.height(26.dp))
+            PlainCard(Modifier.fillMaxWidth(), radius = 30.dp, padding = PaddingValues(18.dp)) {
                 Row(Modifier.fillMaxWidth().height(54.dp).clip(Capsule()).background(Color.White).border(0.5.dp, Color(0x14000000), Capsule()).padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Icon("phone", C.Sec, 18.dp); Spacer(Modifier.width(8.dp))
-                    BasicText("+86", style = T.Btn); Spacer(Modifier.width(10.dp))
-                    Box(Modifier.size(1.dp, 22.dp).background(C.Line)); Spacer(Modifier.width(10.dp))
-                    Field(phone, { phone = it.filter { c -> c.isDigit() }.take(11) }, "手机号", Modifier.weight(1f), style = T.Label.copy(fontSize = 17.sp))
+                    Icon("mail", C.Sec, 18.dp); Spacer(Modifier.width(10.dp))
+                    Field(email, { email = it.trim() }, "输入您的注册/登录邮箱", Modifier.weight(1f), style = T.Label.copy(fontSize = 16.sp))
                 }
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).height(54.dp).clip(Capsule()).background(Color.White).border(0.5.dp, Color(0x14000000), Capsule()).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon("shield", C.Sec, 18.dp); Spacer(Modifier.width(8.dp))
-                        Field(code, { code = it.filter { c -> c.isDigit() }.take(6) }, "6 位验证码", Modifier.weight(1f), style = T.Label.copy(fontSize = 16.sp))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    BasicText("获取验证码", Modifier.height(54.dp).clip(Capsule()).background(C.Blue.copy(alpha = 0.10f)).clickable {
-                        Island.show("测试版还没接入短信服务", Island.Kind.Info)
-                    }.padding(horizontal = 18.dp, vertical = 16.dp), style = T.Btn.copy(color = C.Blue))
-                }
+                Spacer(Modifier.height(14.dp))
+                BasicText("官方服务与账号支持邮箱：qigai730@gmail.com", style = T.Cap.copy(color = C.Sec, fontSize = 12.5.sp))
                 Spacer(Modifier.height(18.dp))
-                BasicText("登录 / 注册", Modifier.fillMaxWidth().height(54.dp).clip(Capsule()).background(C.Ink.copy(alpha = 0.9f)).clickable {
+                BasicText("登录 / 绑定账号", Modifier.fillMaxWidth().height(52.dp).clip(Capsule()).background(C.Ink.copy(alpha = 0.92f)).clickable {
+                    val em = email.trim()
                     when {
-                        !agree -> Island.show("先勾选同意用户协议", Island.Kind.Warn)
-                        phone.length != 11 -> Island.show("手机号是 11 位", Island.Kind.Warn)
+                        !agree -> Island.show("请先勾选同意协议", Island.Kind.Warn)
+                        em.isBlank() || !em.contains("@") || !em.contains(".") -> Island.show("请输入有效的邮箱地址", Island.Kind.Warn)
                         else -> {
-                            Store.updateSettings(Store.settings.value.copy(account = phone))
-                            Island.show("测试版：账号只记在本机，未上传", Island.Kind.Done); Nav.pop()
+                            Store.updateSettings(Store.settings.value.copy(account = em, userEmail = em, onboardingDone = true))
+                            Island.show("登录成功 · $em", Island.Kind.Done); Nav.pop()
                         }
                     }
-                }.padding(top = 15.dp), style = T.Btn.copy(color = Color.White, fontSize = 17.sp, textAlign = TextAlign.Center))
-                Spacer(Modifier.height(12.dp))
+                }.padding(top = 15.dp), style = T.Btn.copy(color = Color.White, fontSize = 16.5.sp, textAlign = TextAlign.Center))
+                Spacer(Modifier.height(14.dp))
                 Row(Modifier.clickable { agree = !agree }, verticalAlignment = Alignment.CenterVertically) {
                     CheckDot(agree, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                    BasicText("已阅读并同意《用户协议》《隐私政策》", style = T.Cap.copy(fontSize = 12.5.sp))
+                    BasicText("已阅读并同意《用户服务协议》与《隐私政策》", style = T.Cap.copy(fontSize = 12.5.sp))
                 }
             }
-            Spacer(Modifier.height(22.dp))
-            BasicText("测试版登录服务还没上线，所有数据都保存在本机", style = T.Cap)
-            Spacer(Modifier.height(18.dp))
-            BasicText("先不登录，仅在本机使用", Modifier.clip(Capsule()).clickable {
-                Store.updateSettings(Store.settings.value.copy(account = "guest")); Nav.pop()
-            }.padding(horizontal = 16.dp, vertical = 10.dp), style = T.Btn.copy(color = C.Blue, fontSize = 16.sp))
+            Spacer(Modifier.height(20.dp))
+            BasicText("先不登录，仅以访客身份在本机使用", Modifier.clip(Capsule()).clickable {
+                Store.updateSettings(Store.settings.value.copy(account = "guest", onboardingDone = true)); Nav.pop()
+            }.padding(horizontal = 16.dp, vertical = 10.dp), style = T.Btn.copy(color = C.Blue, fontSize = 15.sp))
             Spacer(Modifier.height(40.dp))
         }
     }, overlay = { b -> BackBar(b) })

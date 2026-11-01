@@ -635,11 +635,11 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "新" to "书架重做：每门课一层，书脊 + 最新一本封面朝外，配色按课程固定",
-        "新" to "书少时不再空荡：按课表摆出半透明「待写」书脊，上完一节就变成实书",
-        "新" to "笔记页可切换「书架 / 列表」，列表带课程筛选、生成进度和复习卡/考点标签",
-        "新" to "所有 AI 生成改为后台运行：课表识别、AI 封面、课件解析、导图、问学长、公式讲解，离开页面再回来进度和结果都在",
-        "修" to "离开页面会打断 AI 生成的问题",
+        "新" to "内置 PPT/PPTX 转 PDF 工具，高保真还原原稿排版与高清插图",
+        "新" to "首页头部切换为 Today，课程表透明网格沉浸式展示",
+        "新" to "下课改成长按 1.5 秒确认，带进度环反馈，彻底防止误触中断",
+        "新" to "支持头像与昵称更换、邮箱登录、Documents/课堂学长备份 一键云备份",
+        "新" to "模型配置卡片全面升级，支持 Gitee 账户连接与远程更新检测",
     )
     fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7.1"
     fun maybeShow(ctx: Context) {
@@ -659,21 +659,14 @@ fun SplashHost() {
         Box(Modifier.fillMaxSize().background(C.Bg.copy(alpha = 0.72f)).background(Color.Black.copy(alpha = 0.18f)).clickable(interactionSource = null, indication = null) {}) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.weight(0.6f))
-                Box(Modifier.size(80.dp).shadow(10.dp, RoundedCornerShape(24.dp), ambientColor = Color(0x22000000), spotColor = Color(0x22000000)).clip(RoundedCornerShape(24.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-                    BasicText("学", style = T.Large.copy(fontSize = 38.sp))
-                }
-                Spacer(Modifier.height(14.dp))
-                BasicText("课堂学长", style = T.Large.copy(fontSize = 30.sp))
-                Row(verticalAlignment = Alignment.CenterVertically) { BetaPill(); Spacer(Modifier.width(10.dp)); BasicText("v$ver", style = T.Btn.copy(fontSize = 13.sp, color = C.Sec)) }
-                Spacer(Modifier.height(22.dp))
+                Spacer(Modifier.weight(0.5f))
                 AnimatedVisibility(Splash.visible.value, enter = scaleIn(initialScale = 0.92f) + fadeIn()) {
                     Column(Modifier.fillMaxWidth().shadow(18.dp, RoundedCornerShape(30.dp), ambientColor = Color(0x2A000000), spotColor = Color(0x2A000000))
-                        .clip(RoundedCornerShape(30.dp)).background(Color.White).padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        .clip(RoundedCornerShape(30.dp)).background(Color.White).padding(horizontal = 20.dp, vertical = 20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon("mega", C.Blue, 20.dp, 2.1f); Spacer(Modifier.width(8.dp))
-                            BasicText("公告", Modifier.weight(1f), style = T.Head)
-                            BasicText(java.text.SimpleDateFormat("M月d日", java.util.Locale.CHINA).format(java.util.Date()), style = T.Cap)
+                            Icon("mega", C.Blue, 22.dp, 2.1f); Spacer(Modifier.width(10.dp))
+                            BasicText("版本公告", Modifier.weight(1f), style = T.Head.copy(fontSize = 20.sp))
+                            BasicText("v$ver", Modifier.clip(Capsule()).background(C.Fill).padding(horizontal = 8.dp, vertical = 3.dp), style = T.Cap.copy(color = C.Sec, fontWeight = FontWeight.Bold))
                         }
                         Spacer(Modifier.height(10.dp))
                         Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) { Splash.ITEMS.forEach { (tag, s) ->
@@ -706,6 +699,142 @@ fun SplashHost() {
                 }
                 Spacer(Modifier.weight(1f))
             }
+        }
+    }
+}
+
+// =================== 新手引导（Onboarding） ===================
+@Composable
+fun OnboardingHost() {
+    val ctx = LocalContext.current
+    val s = Store.settings.value
+    var visible by remember { mutableStateOf(!s.onboardingDone) }
+    var keyInput by remember { mutableStateOf(s.llmKey) }
+
+    if (!visible) return
+
+    Box(
+        Modifier.fillMaxSize()
+            .background(C.Bg.copy(alpha = 0.88f))
+            .background(Color.Black.copy(alpha = 0.28f))
+            .clickable(interactionSource = null, indication = null) {}
+    ) {
+        Column(
+            Modifier.fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(32.dp))
+            BasicText("欢迎使用课堂学长", style = T.Large.copy(fontSize = 28.sp))
+            Spacer(Modifier.height(6.dp))
+            BasicText("AI 驱动的现代大学课堂与课件学习伴侣", style = T.Sub.copy(fontSize = 14.sp))
+
+            Spacer(Modifier.height(20.dp))
+            PlainCard(Modifier.fillMaxWidth(), radius = 26.dp, padding = PaddingValues(18.dp)) {
+                listOf(
+                    Triple("mic", "实时课堂与学长讲解", "转写课堂原声，一键切换朋友聊天般通俗的大白话"),
+                    Triple("filetext", "内置 PPT/PPTX 转 PDF", "自动提取原生页面与高清配图，保真度全面提升"),
+                    Triple("scan", "智能课表识别", "拍照即可排好整学期课程，没课区域通透沉浸"),
+                    Triple("star", "课后智能复习", "提炼核心考点、口诀记忆卡与交互式复习工具")
+                ).forEachIndexed { i, (icon, title, desc) ->
+                    if (i > 0) Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(40.dp).clip(Capsule()).background(C.Blue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                            Icon(icon, C.Blue, 20.dp)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            BasicText(title, style = T.Label.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp))
+                            BasicText(desc, style = T.Cap.copy(color = C.Sec, fontSize = 12.sp, lineHeight = 16.sp))
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            PlainCard(Modifier.fillMaxWidth(), radius = 26.dp, padding = PaddingValues(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon("key", C.Orange, 22.dp)
+                    Spacer(Modifier.width(8.dp))
+                    BasicText("配置 API Key（核心引擎）", style = T.Head.copy(fontSize = 17.sp))
+                }
+                Spacer(Modifier.height(8.dp))
+                BasicText(
+                    "课堂学长由大模型驱动。推荐使用免费送额度的硅基流动（SiliconFlow）或 DeepSeek 开放平台。",
+                    style = T.Cap.copy(fontSize = 13.sp, lineHeight = 18.sp, color = C.Ink.copy(alpha = 0.85f))
+                )
+                Spacer(Modifier.height(14.dp))
+
+                // 获取 API Key 按钮，自动跳转浏览器
+                Row(
+                    Modifier.fillMaxWidth().height(48.dp).clip(Capsule()).background(C.Blue.copy(alpha = 0.12f))
+                        .clickable {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://cloud.siliconflow.cn/account/ak")
+                            )
+                            ctx.startActivity(intent)
+                        }.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon("globe", C.Blue, 18.dp)
+                    Spacer(Modifier.width(8.dp))
+                    BasicText("获取 API Key (自动跳转浏览器)", style = T.Btn.copy(color = C.Blue, fontSize = 14.5.sp))
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://platform.deepseek.com/api_keys")
+                        )
+                        ctx.startActivity(intent)
+                    }.padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    BasicText("或访问 DeepSeek 开放平台获取 ›", style = T.Cap.copy(color = C.Sec, fontSize = 12.sp))
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Fill).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Field(keyInput, { keyInput = it }, "在此粘贴或输入 sk-...", Modifier.weight(1f), mask = false, style = T.Label.copy(fontSize = 14.sp))
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            BasicText(
+                "开始使用",
+                Modifier.fillMaxWidth().height(52.dp).clip(Capsule()).background(C.Ink.copy(alpha = 0.92f)).clickable {
+                    val trimmed = keyInput.trim()
+                    if (trimmed.isNotBlank()) {
+                        Store.updateSettings(Store.settings.value.copy(onboardingDone = true, llmKey = trimmed, asrKey = trimmed))
+                    } else {
+                        Store.updateSettings(Store.settings.value.copy(onboardingDone = true))
+                    }
+                    visible = false
+                    Island.show("配置完成，欢迎体验课堂学长！", Island.Kind.Done)
+                }.padding(top = 15.dp),
+                style = T.Btn.copy(color = Color.White, fontSize = 16.5.sp, textAlign = TextAlign.Center)
+            )
+
+            Spacer(Modifier.height(10.dp))
+            BasicText(
+                "稍后再填，直接进入 ›",
+                Modifier.clickable {
+                    Store.updateSettings(Store.settings.value.copy(onboardingDone = true))
+                    visible = false
+                }.padding(8.dp),
+                style = T.Cap.copy(color = C.Sec, fontSize = 13.5.sp)
+            )
+            Spacer(Modifier.height(30.dp))
         }
     }
 }

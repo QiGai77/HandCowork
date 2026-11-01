@@ -137,7 +137,7 @@ fun HomeTab() {
             Column(Modifier.padding(start = 20.dp, end = 16.dp, top = 40.dp, bottom = 8.dp)) {
                 BasicText(dateStr + if (today.isNotEmpty()) " · 今天 ${today.size} 节" else "", style = T.Sub)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BasicText("今天", style = T.Large.copy(fontSize = 34.sp))
+                    BasicText("Today", style = T.Large.copy(fontSize = 34.sp))
                     Spacer(Modifier.width(8.dp)); BetaPill()
                     Spacer(Modifier.weight(1f))
                     ImportPill { Nav.push(Route.ImportTimetable) }
@@ -147,21 +147,9 @@ fun HomeTab() {
             }
         }
         if (Live.running.value) item { LiveBanner() }
-        if (next != null) item { HeroCourse(next, nowMin, start) }
-        else item { TodayEmpty(today.isNotEmpty()) }
-        if (later.isNotEmpty()) {
-            item { BasicText("稍后", Modifier.padding(start = 30.dp, top = 14.dp, bottom = 8.dp), style = T.Sub.copy(fontWeight = FontWeight.Medium)) }
-            item {
-                PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), radius = 24.dp, padding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                    later.forEachIndexed { i, t ->
-                        LaterRow(t)
-                        if (i < later.lastIndex) Divider(116.dp)
-                    }
-                }
-            }
+        item {
+            WeekTable(wd)
         }
-        item { BasicText("本周课表", Modifier.padding(start = 30.dp, top = 18.dp, bottom = 8.dp), style = T.Sub.copy(fontWeight = FontWeight.Medium)) }
-        item { WeekTable(wd) }
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 16.dp).fillMaxWidth().height(50.dp)
                 .glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.55f)).clip(Capsule())
@@ -630,7 +618,7 @@ private fun Stepper(v: Int, range: IntRange, onChange: (Int) -> Unit) {
 }
 
 
-/** 五大节 × 七天玻璃课表：低饱和课程块，课名靠上、教室靠下，今天高亮。 */
+/** 五大节 × 七天玻璃课表：现代开源课程表质感，高饱和圆角课程条，没课的地方完全透明。 */
 @Composable
 fun WeekTable(todayWd: Int) {
     val big = listOf("1-2" to "08:00", "3-4" to "10:10", "5-6" to "14:00", "7-8" to "16:00", "9-12" to "19:00")
@@ -655,7 +643,7 @@ fun WeekTable(todayWd: Int) {
             }
         }
         big.forEachIndexed { b, (label, t0) ->
-            Row(Modifier.fillMaxWidth().height(78.dp)) {
+            Row(Modifier.fillMaxWidth().height(80.dp)) {
                 Column(Modifier.width(34.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     BasicText("${b + 1}", style = T.Btn.copy(fontSize = 13.sp))
                     BasicText(t0, style = T.Cap.copy(fontSize = 9.sp))
@@ -663,19 +651,23 @@ fun WeekTable(todayWd: Int) {
                 for (d in 1..7) {
                     val list = cells[d to b]
                     Box(Modifier.weight(1f).fillMaxHeight().padding(2.dp)) {
-                        if (list.isNullOrEmpty()) Box(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)).background(if (d == todayWd) C.Blue.copy(alpha = 0.04f) else C.Fill.copy(alpha = 0.35f)))
-                        else {
+                        if (list.isNullOrEmpty()) {
+                            // 没课的地方完全透明
+                            Box(Modifier.fillMaxSize().background(Color.Transparent))
+                        } else {
                             val (c, sl) = list.first()
                             val col = C.course[c.colorIdx % C.course.size]
                             Column(Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))
-                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(col.copy(alpha = 0.26f), col.copy(alpha = 0.14f))))
-                                .border(0.8.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                                .clickable { Nav.push(Route.CourseDetail(c.id)) }.padding(horizontal = 3.dp, vertical = 4.dp)) {
-                                BasicText(c.name, style = T.Cap.copy(color = C.Ink, fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(col.copy(alpha = 0.88f), col.copy(alpha = 0.72f))))
+                                .border(0.6.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                                .clickable { Nav.push(Route.CourseDetail(c.id)) }.padding(horizontal = 4.dp, vertical = 5.dp)) {
+                                BasicText(c.name, style = T.Cap.copy(color = Color.White, fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold), maxLines = 3, overflow = TextOverflow.Ellipsis)
                                 Spacer(Modifier.weight(1f))
-                                BasicText(sl.room.ifBlank { c.room }, style = T.Cap.copy(fontSize = 9.sp, lineHeight = 11.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                BasicText(sl.room.ifBlank { c.room }, style = T.Cap.copy(color = Color.White.copy(alpha = 0.9f), fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            if (list.size > 1) Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(6.dp).clip(Capsule()).background(C.Orange))
+                            if (list.size > 1) {
+                                Box(Modifier.align(Alignment.TopEnd).padding(3.dp).size(6.dp).clip(Capsule()).background(Color.White))
+                            }
                         }
                     }
                 }

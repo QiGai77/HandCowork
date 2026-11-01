@@ -153,6 +153,7 @@ fun App() {
         androidx.compose.runtime.CompositionLocalProvider(LocalBg provides appB) { SheetHost() }
         SlideViewerHost()
         androidx.compose.runtime.CompositionLocalProvider(LocalBg provides appB) { SplashHost() }
+        androidx.compose.runtime.CompositionLocalProvider(LocalBg provides appB) { OnboardingHost() }
         IslandHost()
     }
 }

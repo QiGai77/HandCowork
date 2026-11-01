@@ -111,6 +111,13 @@ data class Settings(
     val ghClientId: String = "",        // GitHub OAuth App 的 Client ID（设备码流程）
     val ghToken: String = "",
     val ghUser: String = "",
+    val onboardingDone: Boolean = false,
+    val userName: String = "同学",
+    val userAvatar: String = "",
+    val userEmail: String = "",
+    val modelMode: Int = 0,             // 0 原生模式 / 1 Agent 模式（待开发）
+    val giteeUser: String = "",
+    val giteeToken: String = "",
 )
 
 object Store {
@@ -203,6 +210,8 @@ object Store {
         .put("po", JSONObject().also { o -> promptOverrides.forEach { (k, v) -> o.put(k, v) } })
         .put("gc", gClientId).put("gs", gClientSecret).put("gf", gFolderId).put("gl", gLastSync)
         .put("th", theme).put("sf", shelfFold).put("cds", cardStyle).put("ghc", ghClientId).put("ght", ghToken).put("ghu", ghUser)
+        .put("obd", onboardingDone).put("un", userName).put("ua", userAvatar).put("ue", userEmail)
+        .put("mm", modelMode).put("gtu", giteeUser).put("gtt", giteeToken)
     private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
@@ -211,7 +220,9 @@ object Store {
         optString("la", "key"), optString("su"), optString("du"), optString("dus"), optString("dp"), optLong("ls"), optInt("nd", 1),
         optJSONObject("po")?.let { o -> o.keys().asSequence().associateWith { o.optString(it) }.filterValues { it.isNotBlank() } } ?: emptyMap(),
         optString("gc"), optString("gs"), optString("gf"), optLong("gl"),
-        optInt("th"), optBoolean("sf"), optInt("cds"), optString("ghc"), optString("ght"), optString("ghu")) }
+        optInt("th"), optBoolean("sf"), optInt("cds"), optString("ghc"), optString("ght"), optString("ghu"),
+        optBoolean("obd", false), optString("un", d.userName), optString("ua", d.userAvatar), optString("ue", d.userEmail),
+        optInt("mm", 0), optString("gtu", d.giteeUser), optString("gtt", d.giteeToken)) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())

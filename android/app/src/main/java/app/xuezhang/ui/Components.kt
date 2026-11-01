@@ -313,3 +313,55 @@ fun Waveform(levels: List<Float>, color: Color, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Google 原生四色标志（蓝红黄绿高精度矢量绘制）。 */
+@Composable
+fun GoogleNativeLogo(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 24.dp) {
+    Canvas(modifier = modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val cx = w / 2f
+        val cy = h / 2f
+        val radius = minOf(w, h) * 0.44f
+        val strokeW = radius * 0.38f
+
+        val red = Color(0xFFEA4335)
+        val yellow = Color(0xFFFBBC05)
+        val green = Color(0xFF34A853)
+        val blue = Color(0xFF4285F4)
+
+        val arcStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW, cap = androidx.compose.ui.graphics.StrokeCap.Butt)
+
+        // 黄色 (左下弧)
+        drawArc(color = yellow, startAngle = 125f, sweepAngle = 95f, useCenter = false,
+            topLeft = Offset(cx - radius, cy - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2), style = arcStyle)
+        // 绿色 (底部弧)
+        drawArc(color = green, startAngle = 35f, sweepAngle = 90f, useCenter = false,
+            topLeft = Offset(cx - radius, cy - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2), style = arcStyle)
+        // 红色 (顶部弧)
+        drawArc(color = red, startAngle = 220f, sweepAngle = 105f, useCenter = false,
+            topLeft = Offset(cx - radius, cy - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2), style = arcStyle)
+        // 蓝色 (右上弧)
+        drawArc(color = blue, startAngle = 325f, sweepAngle = 45f, useCenter = false,
+            topLeft = Offset(cx - radius, cy - radius), size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2), style = arcStyle)
+
+        // 蓝色横杠
+        val barH = strokeW * 0.95f
+        drawRect(
+            color = blue,
+            topLeft = Offset(cx - radius * 0.05f, cy - barH / 2f),
+            size = androidx.compose.ui.geometry.Size(radius * 1.05f, barH)
+        )
+    }
+}
+
+/** Gitee 官方品牌标志。 */
+@Composable
+fun GiteeLogo(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 24.dp) {
+    Box(
+        modifier = modifier.size(size).clip(Capsule()).background(Color(0xFFC71D23)),
+        contentAlignment = Alignment.Center
+    ) {
+        BasicText("G", style = T.Title.copy(color = Color.White, fontSize = (size.value * 0.58f).sp, fontWeight = FontWeight.Black, fontFamily = null))
+    }
+}

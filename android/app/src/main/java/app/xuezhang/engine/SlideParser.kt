@@ -54,11 +54,20 @@ object SlideParser {
         }
     }
 
-    /** 把课件复制到 app 私有目录，便于之后渲染页面。 */
+    /** 把课件复制到 app 私有目录，若为 PPT/PPTX 则通过内置工具自动转换为标准 PDF，以获得原生高质量渲染。 */
     fun copyLocal(ctx: Context, uri: Uri, name: String, id: String): String = runCatching {
         val ext = name.substringAfterLast('.', "pdf").lowercase().take(5)
-        val f = java.io.File(java.io.File(ctx.filesDir, "slides").apply { mkdirs() }, "$id.$ext")
-        ctx.contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { i.copyTo(it) } }
+        val dir = java.io.File(ctx.filesDir, "slides").apply { mkdirs() }
+        val f = java.io.File(dir, "$id.$ext")
+        (if (uri.scheme == "file") java.io.FileInputStream(uri.path!!) else ctx.contentResolver.openInputStream(uri)!!).use { i ->
+            f.outputStream().use { i.copyTo(it) }
+        }
+        if (ext == "pptx" || ext == "ppt") {
+            val pdfFile = java.io.File(dir, "$id.pdf")
+            if (PptxToPdfConverter.convert(f, pdfFile)) {
+                return@runCatching pdfFile.absolutePath
+            }
+        }
         f.absolutePath
     }.getOrDefault("")
 

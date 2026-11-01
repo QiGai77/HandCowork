@@ -46,8 +46,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -173,22 +176,71 @@ fun LiveScreen() {
             Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(12.dp).fillMaxWidth()
                 .glass(b, RoundedRectangle(36.dp), surface = Color.White.copy(alpha = 0.55f)).padding(14.dp)
         ) {
-            var confirmStop by remember { mutableStateOf(false) }
-            LaunchedEffect(confirmStop) {
-                if (confirmStop) {
-                    kotlinx.coroutines.delay(3000)
-                    confirmStop = false
-                }
-            }
             Waveform(Live.levels.toList(), C.Ink.copy(alpha = 0.8f), Modifier.fillMaxWidth().height(30.dp))
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn(if (Live.paused.value) "继续" else "暂停", { Live.togglePause() }, Modifier.weight(1f), icon = if (Live.paused.value) "play" else "pause", backdrop = b)
-                Btn("标为考点", { Live.markExam() }, Modifier.weight(1.3f), icon = "star", tint = C.Orange, backdrop = b)
-                Btn(if (confirmStop) "确认下课?" else "下课", { if (confirmStop) Live.stop(ctx) else confirmStop = true }, Modifier.weight(1.1f), icon = "stop", tint = C.Red, backdrop = b)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Btn(if (Live.paused.value) "继续" else "暂停", { Live.togglePause() }, Modifier.weight(0.9f), icon = if (Live.paused.value) "play" else "pause", backdrop = b)
+                Btn("标为考点", { Live.markExam() }, Modifier.weight(1.1f), icon = "star", tint = C.Orange, backdrop = b)
+                LongPressEndClassBtn(Modifier.weight(1.4f)) { Live.stop(ctx) }
             }
         }
     })
+}
+
+/** 长按 1.5 秒确认下课防误触按钮，带动画填充进度条。 */
+@Composable
+fun LongPressEndClassBtn(modifier: Modifier = Modifier, onEnd: () -> Unit) {
+    var pressing by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(pressing) {
+        if (pressing) {
+            val start = System.currentTimeMillis()
+            val total = 1500L
+            while (pressing) {
+                val elapsed = System.currentTimeMillis() - start
+                progress = (elapsed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                if (elapsed >= total) {
+                    pressing = false
+                    progress = 0f
+                    onEnd()
+                    break
+                }
+                kotlinx.coroutines.delay(16)
+            }
+        } else {
+            progress = 0f
+        }
+    }
+
+    Box(
+        modifier.height(46.dp).clip(Capsule()).background(C.Red.copy(alpha = 0.12f))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressing = true
+                        tryAwaitRelease()
+                        pressing = false
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (progress > 0f) {
+            Box(Modifier.fillMaxSize().align(Alignment.CenterStart)) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(progress).background(C.Red.copy(alpha = 0.35f)))
+            }
+        }
+        val secStr = "%.1fs".format(progress * 1.5f)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Icon("stop", C.Red, 16.dp)
+            Spacer(Modifier.width(5.dp))
+            BasicText(
+                if (pressing) "长按 $secStr" else "长按1.5s下课",
+                style = T.Btn.copy(color = C.Red, fontSize = 13.sp)
+            )
+        }
+    }
 }
 
 @Composable

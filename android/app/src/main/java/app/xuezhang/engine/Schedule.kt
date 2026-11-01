@@ -94,31 +94,45 @@ object Schedule {
         val out = mutableListOf<Entry>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val name = (o.optString("name").ifBlank { o.optString("course") }.ifBlank { o.optString("courseName") }.ifBlank { o.optString("课程") }.ifBlank { o.optString("课程名") }).trim()
+            val name = (o.optString("name").ifBlank { o.optString("course") }.ifBlank { o.optString("courseName") }
+                .ifBlank { o.optString("课程") }.ifBlank { o.optString("课程名") }.ifBlank { o.optString("title") }.ifBlank { o.optString("subject") }).trim()
             if (name.isBlank()) continue
-            val wdRaw = o.opt("weekday") ?: o.opt("day") ?: o.opt("星期")
+            val wdRaw = o.opt("weekday") ?: o.opt("day") ?: o.opt("星期") ?: o.opt("周")
             val wd = when (wdRaw) { is Number -> wdRaw.toInt().let { if (it == 0) 7 else it }; else -> parseWeekday(wdRaw?.toString()) }
-            var s = (o.opt("startSection") ?: o.opt("start") ?: o.opt("start_section")).asInt()
-            var e = (o.opt("endSection") ?: o.opt("end") ?: o.opt("end_section")).asInt()
-            if (s == 0) o.optString("sections").let { sec -> Regex("(\\d+)\\D+(\\d+)").find(sec)?.let { s = it.groupValues[1].toInt(); e = it.groupValues[2].toInt() } }
+            var s = (o.opt("startSection") ?: o.opt("start") ?: o.opt("start_section") ?: o.opt("开始节次")).asInt()
+            var e = (o.opt("endSection") ?: o.opt("end") ?: o.opt("end_section") ?: o.opt("结束节次")).asInt()
+            val secStr = (o.optString("sections").ifBlank { o.optString("section") }.ifBlank { o.optString("节次") }).trim()
+            if (secStr.isNotBlank()) {
+                Regex("(\\d+)[^0-9]+(\\d+)").find(secStr)?.let {
+                    s = it.groupValues[1].toInt(); e = it.groupValues[2].toInt()
+                } ?: run {
+                    if (s == 0) Regex("(\\d+)").find(secStr)?.let { s = it.groupValues[1].toInt(); e = s }
+                }
+            }
             // 只有时间没有节次：按默认作息换算成节次
             if (s == 0) {
-                val st = legacyClock(o.optString("startTime").ifBlank { o.optString("start_time") }.ifBlank { o.optString("time") })
-                val et = legacyClock(o.optString("endTime").ifBlank { o.optString("end_time") }) ?: Regex("\\d{1,2}[:：]\\d{2}\\D+(\\d{1,2}[:：]\\d{2})").find(o.optString("time"))?.groupValues?.get(1)?.let { legacyClock(it) }
+                val st = legacyClock(o.optString("startTime").ifBlank { o.optString("start_time") }.ifBlank { o.optString("time") }.ifBlank { o.optString("上课时间") })
+                val et = legacyClock(o.optString("endTime").ifBlank { o.optString("end_time") }.ifBlank { o.optString("下课时间") })
+                    ?: Regex("\\d{1,2}[:：]\\d{2}\\D+(\\d{1,2}[:：]\\d{2})").find(o.optString("time"))?.groupValues?.get(1)?.let { legacyClock(it) }
                 if (st != null) {
                     s = sectionAt(st, true); e = if (et != null) sectionAt(et, false) else s + 1
                 }
             }
             if (e < s) e = s
-            val weeks = when (val w = o.opt("weeks")) { is JSONArray -> (0 until w.length()).joinToString(",") { w.opt(it).toString() }; null -> ""; else -> w.toString() }
-            out.add(Entry(name.take(30), if (wd in 1..7) wd else 0, s.coerceIn(0, 14), e.coerceIn(0, 14),
-                o.optString("room").ifBlank { o.optString("location") }.take(30), o.optString("teacher").take(20), weeks.take(30)))
+            val weeks = when (val w = o.opt("weeks") ?: o.opt("周次") ?: o.opt("week")) {
+                is JSONArray -> (0 until w.length()).joinToString(",") { w.opt(it).toString() }
+                null -> ""
+                else -> w.toString()
+            }
+            val room = o.optString("room").ifBlank { o.optString("location") }.ifBlank { o.optString("教室") }.ifBlank { o.optString("地点") }.take(30)
+            val teacher = o.optString("teacher").ifBlank { o.optString("老师") }.ifBlank { o.optString("教师") }.take(20)
+            out.add(Entry(name.take(30), if (wd in 1..7) wd else 0, s.coerceIn(0, 14), e.coerceIn(0, 14), room, teacher, weeks.take(30)))
         }
         // 同名同时间去重
         return out.distinctBy { "${norm(it.name)}|${it.weekday}|${it.startSection}" }
     }
 
-    private fun looksLikeCourse(o: JSONObject?) = o != null && listOf("name", "course", "课程", "courseName", "课程名").any { o.has(it) }
+    private fun looksLikeCourse(o: JSONObject?) = o != null && listOf("name", "course", "课程", "courseName", "课程名", "title", "subject").any { o.has(it) }
 
     /** 在模型给出的所有 JSON 值里找课程数组：顶层数组，或任意层级下 courses/data/items/schedule/课程… 字段。 */
     private fun findCourseArray(vals: List<Any>, depth: Int = 0): JSONArray? {

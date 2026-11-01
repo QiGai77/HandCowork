@@ -71,9 +71,10 @@ object SlideImages {
     private val lock = Any()
 
     fun pageCount(path: String): Int = runCatching {
+        val actual = app.xuezhang.engine.PptxToPdfConverter.ensurePdf(path)
         when {
-            path.endsWith(".pdf", true) -> ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
-            path.endsWith(".pptx", true) -> ZipFile(path).use { z -> z.entries().asSequence().count { it.name.matches(Regex("ppt/slides/slide\\d+\\.xml")) } }
+            actual.endsWith(".pdf", true) -> ParcelFileDescriptor.open(File(actual), ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
+            actual.endsWith(".pptx", true) -> ZipFile(actual).use { z -> z.entries().asSequence().count { it.name.matches(Regex("ppt/slides/slide\\d+\\.xml")) } }
             else -> 0
         }
     }.getOrDefault(0)
@@ -81,16 +82,17 @@ object SlideImages {
     /** page 从 1 开始。 */
     fun render(path: String, page: Int, widthPx: Int): Bitmap? {
         if (path.isBlank() || page < 1) return null
-        val key = "$path#$page@$widthPx"
+        val actual = app.xuezhang.engine.PptxToPdfConverter.ensurePdf(path)
+        val key = "$actual#$page@$widthPx"
         cache.get(key)?.let { return it }
         // 磁盘缓存：原始课件页渲染一次后存 PNG，笔记里反复看不用重渲染
-        val f = File(File(app.xuezhang.data.Store.dir, "slidecache").apply { mkdirs() }, "${(path + File(path).lastModified()).hashCode()}_${page}_$widthPx.png")
+        val f = File(File(app.xuezhang.data.Store.dir, "slidecache").apply { mkdirs() }, "${(actual + File(actual).lastModified()).hashCode()}_${page}_$widthPx.png")
         if (f.exists()) runCatching { android.graphics.BitmapFactory.decodeFile(f.absolutePath) }.getOrNull()?.let { cache.put(key, it); return it }
         val bmp = synchronized(lock) {
             runCatching {
                 when {
-                    path.endsWith(".pdf", true) -> renderPdf(path, page, widthPx)
-                    path.endsWith(".pptx", true) -> renderPptx(path, page, widthPx)
+                    actual.endsWith(".pdf", true) -> renderPdf(actual, page, widthPx)
+                    actual.endsWith(".pptx", true) -> renderPptx(actual, page, widthPx)
                     else -> null
                 }
             }.getOrNull()
