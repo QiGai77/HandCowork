@@ -65,10 +65,10 @@ fun LiquidBottomTabs(
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit
 ) {
-    // 自定义主题：底栏始终使用亮色玻璃，不跟随系统深色变灰
-    val isLightTheme = true
+    // 适配深色与浅色模式
+    val isLightTheme = !app.xuezhang.ui.ThemeState.dark
     val accentColor = Color(0xFF0088FF)
-    val containerColor = Color.White.copy(0.78f)
+    val containerColor = if (app.xuezhang.ui.ThemeState.dark) Color(0xFF181A20).copy(0.85f) else Color.White.copy(0.78f)
 
     val tabsBackdrop = rememberLayerBackdrop()
 
@@ -272,10 +272,10 @@ fun LiquidBottomTabs(
                         val progress = dampedDragAnimation.pressProgress
                         drawRect(
                             if (isLightTheme) Color.White.copy(0.9f)
-                            else Color.White.copy(0.1f),
+                            else Color(0xFF2C2F38),
                             alpha = 1f - progress
                         )
-                        drawRect(Color.White.copy(alpha = 0.25f * progress))
+                        drawRect(if (isLightTheme) Color.White.copy(alpha = 0.25f * progress) else Color.White.copy(alpha = 0.12f * progress))
                     }
                 )
                 .height(56f.dp)

@@ -70,11 +70,36 @@ object SlideImages {
     private val cache = LruCache<String, Bitmap>(16)
     private val lock = Any()
 
+    fun getSlideEntries(path: String): List<String> = runCatching {
+        ZipFile(path).use { z ->
+            val relsXml = z.getEntry("ppt/_rels/presentation.xml.rels")?.let { z.getInputStream(it).bufferedReader().use { r -> r.readText() } }.orEmpty()
+            val presXml = z.getEntry("ppt/presentation.xml")?.let { z.getInputStream(it).bufferedReader().use { r -> r.readText() } }.orEmpty()
+            val relMap = Regex("<Relationship [^>]*>").findAll(relsXml).mapNotNull { m ->
+                val id = attr(m.value, "Id") ?: return@mapNotNull null
+                val t = attr(m.value, "Target") ?: return@mapNotNull null
+                id to if (t.startsWith("slides/")) "ppt/$t" else if (t.startsWith("../slides/")) "ppt/${t.removePrefix("../")}" else t
+            }.toMap()
+            val orderedIds = Regex("<p:sldId [^>]*r:id=\"([^\"]+)\"").findAll(presXml).map { it.groupValues[1] }.toList()
+            val ordered = orderedIds.mapNotNull { relMap[it] }.filter { z.getEntry(it) != null }
+            if (ordered.isNotEmpty()) return@runCatching ordered
+
+            // Fallback: collect all slide*.xml and sort naturally
+            val slideRegex = Regex("ppt/slides/slide(\\d+)\\.xml")
+            z.entries().asSequence()
+                .mapNotNull { e -> slideRegex.matchEntire(e.name)?.let { it.groupValues[1].toInt() to e.name } }
+                .sortedBy { it.first }
+                .map { it.second }
+                .toList()
+        }
+    }.getOrDefault(emptyList())
+
     fun pageCount(path: String): Int = runCatching {
-        val actual = app.xuezhang.engine.PptxToPdfConverter.ensurePdf(path)
+        if (path.isBlank()) return@runCatching 0
+        val f = File(path)
+        if (!f.exists()) return@runCatching 0
         when {
-            actual.endsWith(".pdf", true) -> ParcelFileDescriptor.open(File(actual), ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
-            actual.endsWith(".pptx", true) -> ZipFile(actual).use { z -> z.entries().asSequence().count { it.name.matches(Regex("ppt/slides/slide\\d+\\.xml")) } }
+            path.endsWith(".pdf", true) -> ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> PdfRenderer(fd).use { it.pageCount } }
+            path.endsWith(".pptx", true) -> getSlideEntries(path).size
             else -> 0
         }
     }.getOrDefault(0)
@@ -82,22 +107,32 @@ object SlideImages {
     /** page 从 1 开始。 */
     fun render(path: String, page: Int, widthPx: Int): Bitmap? {
         if (path.isBlank() || page < 1) return null
-        val actual = app.xuezhang.engine.PptxToPdfConverter.ensurePdf(path)
-        val key = "$actual#$page@$widthPx"
+        val f = File(path)
+        if (!f.exists()) return null
+        val key = "$path#$page@$widthPx"
         cache.get(key)?.let { return it }
         // 磁盘缓存：原始课件页渲染一次后存 PNG，笔记里反复看不用重渲染
-        val f = File(File(app.xuezhang.data.Store.dir, "slidecache").apply { mkdirs() }, "${(actual + File(actual).lastModified()).hashCode()}_${page}_$widthPx.png")
-        if (f.exists()) runCatching { android.graphics.BitmapFactory.decodeFile(f.absolutePath) }.getOrNull()?.let { cache.put(key, it); return it }
+        val cacheDir = File(app.xuezhang.data.Store.dir, "slidecache").apply { mkdirs() }
+        val cacheFile = File(cacheDir, "${(path + f.lastModified()).hashCode()}_${page}_$widthPx.png")
+        if (cacheFile.exists()) runCatching { android.graphics.BitmapFactory.decodeFile(cacheFile.absolutePath) }.getOrNull()?.let { cache.put(key, it); return it }
         val bmp = synchronized(lock) {
             runCatching {
                 when {
-                    actual.endsWith(".pdf", true) -> renderPdf(actual, page, widthPx)
-                    actual.endsWith(".pptx", true) -> renderPptx(actual, page, widthPx)
+                    path.endsWith(".pdf", true) -> renderPdf(path, page, widthPx)
+                    path.endsWith(".pptx", true) -> {
+                        val pdfPath = path.substringBeforeLast('.') + ".pdf"
+                        val pdfFile = File(pdfPath)
+                        if (pdfFile.exists() && pdfFile.length() > 0L) {
+                            renderPdf(pdfFile.absolutePath, page, widthPx) ?: renderPptx(path, page, widthPx)
+                        } else {
+                            renderPptx(path, page, widthPx)
+                        }
+                    }
                     else -> null
                 }
             }.getOrNull()
         }
-        if (bmp != null) { cache.put(key, bmp); runCatching { f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } } }
+        if (bmp != null) { cache.put(key, bmp); runCatching { cacheFile.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } } }
         return bmp
     }
 
@@ -123,9 +158,11 @@ object SlideImages {
 
     /** 按原始坐标排版：原生解析 sldSz、每个形状的 off/ext、图片、表格、填充色、字号，高保真还原原 PPTX 页面。 */
     private fun renderPptxLayout(path: String, page: Int, widthPx: Int): Bitmap? {
+        val entries = getSlideEntries(path)
+        val slideName = entries.getOrNull(page - 1) ?: "ppt/slides/slide$page.xml"
         ZipFile(path).use { z ->
             fun read(n: String) = z.getEntry(n)?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) }
-            val xml = read("ppt/slides/slide$page.xml") ?: return null
+            val xml = read(slideName) ?: return null
             val pres = read("ppt/presentation.xml").orEmpty()
             val sz = Regex("<p:sldSz[^>]*>").find(pres)?.value
             val sw = sz?.let { attr(it, "cx")?.toLongOrNull() } ?: 12192000L
@@ -133,7 +170,8 @@ object SlideImages {
             val k = widthPx.toFloat() / sw
             val hPx = (sh * k).toInt().coerceAtLeast(1)
 
-            val rels = read("ppt/slides/_rels/slide$page.xml.rels").orEmpty()
+            val relsName = slideName.substringBeforeLast('/') + "/_rels/" + slideName.substringAfterLast('/') + ".rels"
+            val rels = read(relsName).orEmpty()
             val relMap = Regex("<Relationship [^>]*>").findAll(rels).mapNotNull { m ->
                 val id = attr(m.value, "Id") ?: return@mapNotNull null; val t = attr(m.value, "Target") ?: return@mapNotNull null
                 id to t.replace("../", "ppt/")
@@ -298,10 +336,12 @@ object SlideImages {
     }
 
     private fun renderPptxSimple(path: String, page: Int, widthPx: Int): Bitmap? {
-
+        val entries = getSlideEntries(path)
+        val slideName = entries.getOrNull(page - 1) ?: "ppt/slides/slide$page.xml"
         ZipFile(path).use { z ->
-            val xml = z.getEntry("ppt/slides/slide$page.xml")?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) } ?: return null
-            val rels = z.getEntry("ppt/slides/_rels/slide$page.xml.rels")?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) }.orEmpty()
+            val xml = z.getEntry(slideName)?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) } ?: return null
+            val relsName = slideName.substringBeforeLast('/') + "/_rels/" + slideName.substringAfterLast('/') + ".rels"
+            val rels = z.getEntry(relsName)?.let { e -> z.getInputStream(e).readBytes().toString(Charsets.UTF_8) }.orEmpty()
             val media = Regex("Target=\"\\.\\./media/([^\"]+\\.(png|jpe?g))\"", RegexOption.IGNORE_CASE).findAll(rels)
                 .mapNotNull { m -> z.getEntry("ppt/media/${m.groupValues[1]}") }.maxByOrNull { it.size }
             val paras = Regex("<a:p>([\\s\\S]*?)</a:p>").findAll(xml).map { p ->

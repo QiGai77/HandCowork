@@ -198,7 +198,7 @@ fun NoteScreen(id: String) {
                 GlassCircle(b, "more", { menu = !menu; shareMenu = false })
             }
             if (shareMenu) {
-                Column(Modifier.align(Alignment.End).padding(top = 8.dp).width(200.dp).glass(b, RoundedRectangle(22.dp), surface = Color.White.copy(alpha = 0.8f)).padding(vertical = 6.dp)) {
+                Column(Modifier.align(Alignment.End).padding(top = 8.dp).width(200.dp).glass(b, RoundedRectangle(22.dp), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.8f)).padding(vertical = 6.dp)) {
                     BasicText(if (sharing) "正在生成…" else "分享为", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = T.Cap)
                     listOf(app.xuezhang.engine.NoteExport.Fmt.DOCX to "filetext", app.xuezhang.engine.NoteExport.Fmt.PDF to "file",
                         app.xuezhang.engine.NoteExport.Fmt.MD to "list", app.xuezhang.engine.NoteExport.Fmt.IMG to "image").forEach { (f, ic) ->
@@ -220,7 +220,7 @@ fun NoteScreen(id: String) {
                 }
             }
             if (menu) {
-                Column(Modifier.align(Alignment.End).padding(top = 8.dp).width(180.dp).glass(b, RoundedRectangle(22.dp), surface = Color.White.copy(alpha = 0.75f)).padding(vertical = 6.dp)) {
+                Column(Modifier.align(Alignment.End).padding(top = 8.dp).width(180.dp).glass(b, RoundedRectangle(22.dp), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.75f)).padding(vertical = 6.dp)) {
                     MenuItem("重新生成 · 简单笔记", "refresh") { menu = false; Live.regenerate(id, 0); Nav.push(Route.Generating(id)) }
                     MenuItem("重新生成 · 详细笔记", "refresh") { menu = false; Live.regenerate(id, 1); Nav.push(Route.Generating(id)) }
                     MenuItem("删除这节课", "trash", C.Red) { menu = false; Store.deleteLecture(id); Nav.pop() }
@@ -230,7 +230,7 @@ fun NoteScreen(id: String) {
         Row(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).imePadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp).height(50.dp)
-                .glass(b, Capsule(), surface = Color.White.copy(alpha = 0.72f)).padding(start = 18.dp, end = 8.dp),
+                .glass(b, Capsule(), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.88f) else Color.White.copy(alpha = 0.72f)).padding(start = 18.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon("sparkle", C.Blue, 17.dp)
@@ -249,7 +249,7 @@ fun NoteScreen(id: String) {
 private fun TocRow(sections: List<app.xuezhang.data.NoteSection>, open: Boolean, onToggle: () -> Unit, onPick: (Int) -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.height(32.dp).glass(LocalBg.current!!, Capsule(), surface = Color.White.copy(alpha = 0.55f), blurDp = 4f, lensH = 6f, lensA = 10f)
+            Row(Modifier.height(32.dp).glass(LocalBg.current!!, Capsule(), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.80f) else Color.White.copy(alpha = 0.55f), blurDp = 4f, lensH = 6f, lensA = 10f)
                 .clip(Capsule()).clickable(onClick = onToggle).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon("list", C.Ink, 14.dp); Spacer(Modifier.width(6.dp))
                 BasicText("目录 · ${sections.size} 节", style = T.Btn.copy(fontSize = 12.5.sp)); Spacer(Modifier.width(4.dp))
@@ -264,7 +264,7 @@ private fun TocRow(sections: List<app.xuezhang.data.NoteSection>, open: Boolean,
             }
         }
         if (open) {
-            Column(Modifier.padding(top = 8.dp).fillMaxWidth().glass(LocalBg.current!!, RoundedRectangle(18.dp), surface = Color.White.copy(alpha = 0.7f)).padding(vertical = 4.dp)) {
+            Column(Modifier.padding(top = 8.dp).fillMaxWidth().glass(LocalBg.current!!, RoundedRectangle(18.dp), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.7f)).padding(vertical = 4.dp)) {
                 sections.forEachIndexed { i, s ->
                     Row(Modifier.fillMaxWidth().clickable { onPick(i) }.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         BasicText(s.title.ifBlank { "第 ${i + 1} 节" }, Modifier.weight(1f), style = T.Label.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -365,7 +365,7 @@ internal fun ConceptMap(l: Lecture) {
                         }
                         .graphicsLayer { scaleX = sc; scaleY = sc }
                         .clip(if (isRoot) RoundedCornerShape(50) else Capsule())
-                        .background(if (isRoot) Color.White else col.copy(alpha = 0.12f))
+                        .background(if (isRoot) (if (ThemeState.dark) Color(0xFF2C2F38) else Color.White) else col.copy(alpha = 0.12f))
                         .border(if (isRoot) 1.5.dp else 1.dp, col.copy(alpha = if (isRoot) 1f else 0.5f), if (isRoot) RoundedCornerShape(50) else Capsule())
                         .clickable { picked = if (picked == i) -1 else i }
                         .padding(horizontal = if (isRoot) 18.dp else 12.dp, vertical = if (isRoot) 16.dp else 7.dp)
@@ -484,7 +484,7 @@ fun SearchScreen() {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp)) {
             GlassCircle(b, "back", { Nav.pop() })
             Spacer(Modifier.height(64.dp))
-            Row(Modifier.fillMaxWidth().height(46.dp).glass(b, Capsule(), surface = Color.White.copy(alpha = 0.6f)).padding(horizontal = 16.dp),
+            Row(Modifier.fillMaxWidth().height(46.dp).glass(b, Capsule(), surface = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.6f)).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Icon("search", C.Sec, 18.dp); Spacer(Modifier.width(8.dp))
                 Field(q, { q = it }, "梯度、拉格朗日、老师原话…", Modifier.weight(1f))

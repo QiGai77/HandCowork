@@ -77,8 +77,10 @@ fun NoteBody(body: String, onMath: ((String) -> Unit)? = null) {
 @Composable
 fun UiBlockView(b: UiBlock) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color(0xFFF6F8FC))
-            .border(0.6.dp, Color(0x140A72E8), RoundedCornerShape(18.dp)).padding(12.dp).animateContentSize()
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(if (ThemeState.dark) Color(0xFF161820) else Color(0xFFF6F8FC))
+            .border(0.6.dp, if (ThemeState.dark) Color(0x330A72E8) else Color(0x140A72E8), RoundedCornerShape(18.dp))
+            .padding(12.dp).animateContentSize()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(when (b) { is UiBlock.Plot -> "图像"; is UiBlock.Steps -> "推导"; is UiBlock.Quiz -> "小测"; is UiBlock.Compare -> "对比"; is UiBlock.Phasor -> "相量图" },
@@ -113,8 +115,8 @@ private fun ParamSlider(p: Param, value: Double, onChange: (Double) -> Unit) {
             }.pointerInput(p, wPx) { detectHorizontalDragGestures { ch, _ -> set(ch.position.x) } }) {
                 Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(4.dp).clip(Capsule()).background(Color(0x22787880)))
                 Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(f.coerceAtLeast(0.001f)).height(4.dp).clip(Capsule()).background(C.Blue))
-                Box(Modifier.align(Alignment.CenterStart).offset(x = mw * f - 11.dp).size(22.dp).clip(Capsule()).background(Color.White)
-                    .border(0.5.dp, Color(0x22000000), Capsule()))
+                Box(Modifier.align(Alignment.CenterStart).offset(x = mw * f - 11.dp).size(22.dp).clip(Capsule()).background(if (ThemeState.dark) Color(0xFF2C2F38) else Color.White)
+                    .border(0.5.dp, if (ThemeState.dark) Color(0x33FFFFFF) else Color(0x22000000), Capsule()))
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -145,9 +147,9 @@ private fun PlotView(b: UiBlock.Plot) {
         fun px(x: Double) = padL + ((x - b.xMin) / (b.xMax - b.xMin) * w).toFloat()
         fun py(y: Double) = (h - (y - y0) / (y1 - y0) * h).toFloat()
         // 网格与坐标轴
-        for (i in 0..4) { val yy = h * i / 4; drawLine(Color(0x11000000), Offset(padL, yy), Offset(size.width, yy), 1f) }
-        if (y0 < 0 && y1 > 0) drawLine(Color(0x55000000), Offset(padL, py(0.0)), Offset(size.width, py(0.0)), 1.2f)
-        if (b.xMin < 0 && b.xMax > 0) drawLine(Color(0x55000000), Offset(px(0.0), 0f), Offset(px(0.0), h), 1.2f)
+        for (i in 0..4) { val yy = h * i / 4; drawLine(if (ThemeState.dark) Color(0x18FFFFFF) else Color(0x11000000), Offset(padL, yy), Offset(size.width, yy), 1f) }
+        if (y0 < 0 && y1 > 0) drawLine(if (ThemeState.dark) Color(0x55FFFFFF) else Color(0x55000000), Offset(padL, py(0.0)), Offset(size.width, py(0.0)), 1.2f)
+        if (b.xMin < 0 && b.xMax > 0) drawLine(if (ThemeState.dark) Color(0x55FFFFFF) else Color(0x55000000), Offset(px(0.0), 0f), Offset(px(0.0), h), 1.2f)
         ys.forEachIndexed { si, s ->
             val path = Path(); var pen = false
             s.forEachIndexed { i, y ->
@@ -200,7 +202,7 @@ private fun StepsView(b: UiBlock.Steps) {
 
 @Composable
 fun SmallPill(text: String, enabled: Boolean, primary: Boolean = false, onClick: () -> Unit) {
-    BasicText(text, Modifier.clip(Capsule()).background(if (primary) C.Blue else Color(0x14787880)).clickable(enabled = enabled, onClick = onClick)
+    BasicText(text, Modifier.clip(Capsule()).background(if (primary) C.Blue else (if (ThemeState.dark) Color(0x29787880) else Color(0x14787880))).clickable(enabled = enabled, onClick = onClick)
         .padding(horizontal = 14.dp, vertical = 7.dp),
         style = T.Btn.copy(fontSize = 13.sp, color = when { primary -> Color.White; enabled -> C.Ink; else -> C.Ter }))
 }
@@ -215,8 +217,8 @@ private fun QuizView(b: UiBlock.Quiz) {
         val wrong = pick == i && i != b.answer
         Row(
             Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(12.dp))
-                .background(when { right -> C.Green.copy(alpha = 0.12f); wrong -> C.Red.copy(alpha = 0.10f); else -> Color.White })
-                .border(0.6.dp, when { right -> C.Green; wrong -> C.Red; else -> Color(0x14000000) }, RoundedCornerShape(12.dp))
+                .background(when { right -> C.Green.copy(alpha = 0.12f); wrong -> C.Red.copy(alpha = 0.10f); else -> if (ThemeState.dark) Color(0xFF1E212A) else Color.White })
+                .border(0.6.dp, when { right -> C.Green; wrong -> C.Red; else -> C.Line }, RoundedCornerShape(12.dp))
                 .clickable(enabled = pick < 0) { pick = i }.padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -243,7 +245,7 @@ private fun CompareView(b: UiBlock.Compare) {
             }
         }
         b.rows.forEachIndexed { ri, r ->
-            Row(Modifier.background(if (ri % 2 == 0) Color.White else Color.Transparent)) {
+            Row(Modifier.background(if (ri % 2 == 0) (if (ThemeState.dark) Color(0xFF1D2028) else Color.White) else Color.Transparent)) {
                 r.forEachIndexed { i, cell ->
                     Box(Modifier.width(if (i == 0) 84.dp else colW).padding(6.dp)) {
                         RichText(cell, style = T.Body.copy(fontSize = 13.sp, lineHeight = 19.sp, color = if (i == 0) C.Sec else C.Ink,
@@ -281,8 +283,8 @@ private fun PhasorView(b: UiBlock.Phasor) {
         val o = Offset(size.width * 0.32f, size.height * 0.62f)
         val sc = (minOf(size.width * 0.62f, size.height * 0.56f) / maxR).toFloat()
         fun P(p: DoubleArray) = Offset(o.x + p[0].toFloat() * sc, o.y - p[1].toFloat() * sc)
-        drawLine(Color(0x22000000), Offset(0f, o.y), Offset(size.width, o.y), 1f)
-        drawLine(Color(0x22000000), Offset(o.x, 0f), Offset(o.x, size.height), 1f)
+        drawLine(if (ThemeState.dark) Color(0x22FFFFFF) else Color(0x22000000), Offset(0f, o.y), Offset(size.width, o.y), 1f)
+        drawLine(if (ThemeState.dark) Color(0x22FFFFFF) else Color(0x22000000), Offset(o.x, 0f), Offset(o.x, size.height), 1f)
         val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 12.sp.toPx(); isFakeBoldText = true }
         pts.forEachIndexed { i, (s, e) ->
             val vec = b.vectors[i]; val col = pColor(vec.color)

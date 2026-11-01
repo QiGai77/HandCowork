@@ -137,7 +137,7 @@ fun HomeTab() {
             Column(Modifier.padding(start = 20.dp, end = 16.dp, top = 40.dp, bottom = 8.dp)) {
                 BasicText(dateStr + if (today.isNotEmpty()) " · 今天 ${today.size} 节" else "", style = T.Sub)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BasicText("Today", style = T.Large.copy(fontSize = 34.sp))
+                    BasicText("今天", style = T.Large.copy(fontSize = 34.sp))
                     Spacer(Modifier.width(8.dp)); BetaPill()
                     Spacer(Modifier.weight(1f))
                     ImportPill { Nav.push(Route.ImportTimetable) }

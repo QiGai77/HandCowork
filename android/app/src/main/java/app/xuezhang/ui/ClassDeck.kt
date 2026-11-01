@@ -80,10 +80,10 @@ fun ClassTab() {
     LazyColumn(Modifier.fillMaxWidth()) {
         item {
             TopInset()
-            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 40.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    BasicText("上课", style = T.Large.copy(fontSize = 40.sp, lineHeight = 48.sp))
-                    BasicText(if (Live.running.value) "正在录音，点下方回到课堂" else "选择课程，开始记录这一堂课", style = T.Sub.copy(fontSize = 15.sp))
+                    BasicText("上课", style = T.Large.copy(fontSize = 28.sp, lineHeight = 34.sp))
+                    BasicText(if (Live.running.value) "正在录音，点下方回到课堂" else "选择课程，开始记录这一堂课", style = T.Sub.copy(fontSize = 13.sp))
                 }
             }
         }
@@ -97,108 +97,97 @@ fun ClassTab() {
         } else {
             val c = courses[sel]
             val notes = Store.lectures.count { it.courseId == c.id }
-            // 课程大卡（左右滑动也能切换）
+            // 课程卡片（精简紧凑版，不用下滑直接录课，左右滑也可切课）
             item {
                 val scope = rememberCoroutineScope()
                 val dx = remember(c.id) { Animatable(0f) }
-                PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth()
+                PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()
                     .graphicsLayer { translationX = dx.value; rotationZ = dx.value / 80f }
                     .then(if (n > 1) Modifier.pointerInput(sel) {
                         detectHorizontalDragGestures(
                             onHorizontalDrag = { ch, d -> ch.consume(); scope.launch { dx.snapTo(dx.value + d) } },
                             onDragEnd = { if (abs(dx.value) > 200f) { ClassPick.index.intValue = ClassPick.step(sel, n, if (dx.value < 0) 1 else -1) } else scope.launch { dx.animateTo(0f, spring(0.6f, 380f)) } })
-                    } else Modifier), radius = 30.dp, padding = PaddingValues(12.dp)) {
-                    Box(Modifier.fillMaxWidth().height(186.dp)) {
-                        CourseCover(c, Modifier.fillMaxSize().clickable { Nav.push(Route.CourseDetail(c.id)) }, radius = 22.dp)
-                        Row(Modifier.align(Alignment.TopEnd).padding(10.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                    } else Modifier), radius = 24.dp, padding = PaddingValues(10.dp)) {
+                    Box(Modifier.fillMaxWidth().height(96.dp)) {
+                        CourseCover(c, Modifier.fillMaxSize().clickable { Nav.push(Route.CourseDetail(c.id)) }, radius = 18.dp)
+                        Row(Modifier.align(Alignment.TopEnd).padding(8.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.65f)).padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Icon("checkc", Color(0xFF1D1D1F), 15.dp); Spacer(Modifier.width(5.dp))
-                            BasicText("已选课程", style = T.Cap.copy(color = Color(0xFF1D1D1F), fontWeight = FontWeight.SemiBold))
+                            Icon("checkc", Color(0xFF1D1D1F), 13.dp); Spacer(Modifier.width(4.dp))
+                            BasicText("已选课程", style = T.Cap.copy(color = Color(0xFF1D1D1F), fontWeight = FontWeight.SemiBold, fontSize = 11.sp))
                         }
-                        if (n > 1) BasicText("${sel + 1} / $n", Modifier.align(Alignment.TopStart).padding(10.dp).clip(Capsule()).background(Color.Black.copy(alpha = 0.3f))
-                            .padding(horizontal = 10.dp, vertical = 3.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold))
+                        if (n > 1) BasicText("${sel + 1} / $n", Modifier.align(Alignment.TopStart).padding(8.dp).clip(Capsule()).background(Color.Black.copy(alpha = 0.35f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp))
                     }
-                    Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 14.dp)) {
-                        BasicText(c.name, style = T.Title.copy(fontSize = 28.sp, lineHeight = 34.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Spacer(Modifier.height(10.dp))
+                    Column(Modifier.padding(start = 6.dp, end = 6.dp, top = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon("user", C.Sec, 17.dp); Spacer(Modifier.width(6.dp)); BasicText(c.teacher.ifBlank { "未填老师" }, style = T.Label.copy(color = C.Sec))
-                            Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(14.dp).background(C.Line))
-                            Icon("pin", C.Sec, 17.dp); Spacer(Modifier.width(6.dp)); BasicText(c.room.ifBlank { "未填教室" }, style = T.Label.copy(color = C.Sec), maxLines = 1)
+                            BasicText(c.name, Modifier.weight(1f), style = T.Title.copy(fontSize = 20.sp, lineHeight = 26.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(Modifier.clip(Capsule()).clickable { Nav.push(Route.CourseDetail(c.id)) }.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                BasicText("$notes 篇笔记", style = T.Cap.copy(color = ClsBlue, fontSize = 12.sp)); Spacer(Modifier.width(2.dp)); Icon("chevr", ClsBlue, 12.dp)
+                            }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon("clock", C.Sec, 17.dp); Spacer(Modifier.width(6.dp)); BasicText(Schedule.courseSlotLabel(c).ifBlank { "未排课" }, style = T.Label.copy(color = C.Sec))
-                        }
-                        Spacer(Modifier.height(12.dp)); Box(Modifier.fillMaxWidth().height(0.5.dp).background(C.Line))
-                        Row(Modifier.fillMaxWidth().clickable { Nav.push(Route.CourseDetail(c.id)) }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon("filetext", ClsBlue, 20.dp); Spacer(Modifier.width(10.dp))
-                            BasicText("历史笔记", Modifier.weight(1f), style = T.Label.copy(fontSize = 16.sp))
-                            BasicText("$notes 篇", style = T.Label.copy(color = C.Sec)); Spacer(Modifier.width(6.dp)); Icon("chevr", C.Sec, 16.dp)
+                            Icon("user", C.Sec, 14.dp); Spacer(Modifier.width(4.dp)); BasicText(c.teacher.ifBlank { "未填老师" }, style = T.Sub.copy(fontSize = 12.5.sp))
+                            Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(12.dp).background(C.Line))
+                            Icon("pin", C.Sec, 14.dp); Spacer(Modifier.width(4.dp)); BasicText(c.room.ifBlank { "未填教室" }, style = T.Sub.copy(fontSize = 12.5.sp), maxLines = 1)
+                            Box(Modifier.padding(horizontal = 8.dp).width(1.dp).height(12.dp).background(C.Line))
+                            Icon("clock", C.Sec, 14.dp); Spacer(Modifier.width(4.dp)); BasicText(Schedule.courseSlotLabel(c).ifBlank { "未排课" }, style = T.Sub.copy(fontSize = 12.5.sp), maxLines = 1)
                         }
                     }
                 }
             }
             // 课前资料
             item {
-                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BasicText("课前资料", Modifier.weight(1f), style = T.Head)
-                    Row(Modifier.clip(Capsule()).clickable { Nav.push(Route.Materials(c.id)) }.padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon("plusc", ClsBlue, 20.dp); Spacer(Modifier.width(6.dp)); BasicText("添加", style = T.Btn.copy(color = ClsBlue, fontSize = 16.sp))
-                    }
-                }
-                PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), radius = 24.dp, padding = PaddingValues(12.dp)) {
+                PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), radius = 20.dp, padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                     val sp = c.slidePath
                     val has = sp.isNotBlank() && java.io.File(sp).exists()
                     val total = remember(sp) { if (has) SlideImages.pageCount(sp) else 0 }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.width(118.dp)) {
-                            if (has) SlideThumb(sp, 1, widthPx = 600) { SlideViewer.open.value = Triple(sp, 1, total) }
-                            else Box(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(12.dp)).background(C.Fill), contentAlignment = Alignment.Center) { Icon("pres", C.Sec, 24.dp) }
-                            if (has) BasicText(if (sp.endsWith(".pdf", true)) "PDF" else "PPT", Modifier.align(Alignment.BottomEnd).padding(4.dp).clip(RoundedCornerShape(5.dp)).background(C.Red)
-                                .padding(horizontal = 5.dp, vertical = 1.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp))
+                        Box(Modifier.width(72.dp)) {
+                            if (has) SlideThumb(sp, 1, widthPx = 400) { SlideViewer.open.value = Triple(sp, 1, total) }
+                            else Box(Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(10.dp)).background(C.Fill), contentAlignment = Alignment.Center) { Icon("pres", C.Sec, 18.dp) }
+                            if (has) BasicText(if (sp.endsWith(".pdf", true)) "PDF" else "PPT", Modifier.align(Alignment.BottomEnd).padding(2.dp).clip(RoundedCornerShape(4.dp)).background(C.Red)
+                                .padding(horizontal = 4.dp, vertical = 0.5.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp))
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            BasicText(if (has) c.slideFile.substringBeforeLast('.') else "还没有课件", style = T.Btn.copy(fontSize = 16.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            BasicText(if (has) "已关联 · $total 页" else "上传 PPT / PDF", style = T.Sub)
-                            BasicText("帮助学长理解本节课的术语与公式", style = T.Cap, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            BasicText(if (has) c.slideFile.substringBeforeLast('.') else "课前资料", style = T.Btn.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            BasicText(if (has) "已关联 · $total 页" else "上传 PPT / PDF 辅助笔记", style = T.Cap.copy(fontSize = 11.5.sp))
                         }
-                        BasicText(if (has) "查看" else "上传", Modifier.clip(Capsule()).background(ClsBlue.copy(alpha = 0.10f))
+                        BasicText(if (has) "查看" else "添加", Modifier.clip(Capsule()).background(ClsBlue.copy(alpha = 0.10f))
                             .clickable { if (has) SlideViewer.open.value = Triple(sp, 1, total) else Nav.push(Route.Materials(c.id)) }
-                            .padding(horizontal = 16.dp, vertical = 8.dp), style = T.Btn.copy(color = ClsBlue))
+                            .padding(horizontal = 12.dp, vertical = 5.dp), style = T.Btn.copy(color = ClsBlue, fontSize = 12.5.sp))
                     }
                 }
             }
             // 上课准备
             item {
-                BasicText("上课准备", Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp), style = T.Head)
-                PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), radius = 24.dp, padding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)) {
+                PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), radius = 20.dp, padding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
                     val micOk = androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
                     val mode = Store.settings.value.defaultMode
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon("mic", ClsBlue, 24.dp); Spacer(Modifier.width(14.dp))
-                        BasicText(if (micOk) "麦克风已就绪" else "开始时会请求麦克风", style = T.Label.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium))
-                        Spacer(Modifier.width(8.dp)); Box(Modifier.size(8.dp).clip(Capsule()).background(if (micOk) C.Green else C.Orange))
+                        Icon("mic", ClsBlue, 18.dp); Spacer(Modifier.width(10.dp))
+                        BasicText(if (micOk) "麦克风已就绪" else "开始时请求麦克风", style = T.Label.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Medium))
+                        Spacer(Modifier.width(6.dp)); Box(Modifier.size(7.dp).clip(Capsule()).background(if (micOk) C.Green else C.Orange))
                         Spacer(Modifier.weight(1f))
                         Row(Modifier.clip(Capsule()).background(ClsBlue.copy(alpha = 0.08f)).clickable { Store.updateSettings(Store.settings.value.copy(defaultMode = 1 - mode)) }
-                            .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            BasicText(if (mode == 1) "学长讲解" else "原文转写", style = T.Btn.copy(color = ClsBlue)); Icon("chevr", ClsBlue, 15.dp)
+                            .padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BasicText(if (mode == 1) "学长讲解" else "原文转写", style = T.Btn.copy(color = ClsBlue, fontSize = 12.5.sp)); Icon("chevr", ClsBlue, 13.dp)
                         }
                     }
                 }
             }
             // 开始上课
             item {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
-                    Row(Modifier.fillMaxWidth().height(64.dp).shadow(14.dp, Capsule(), ambientColor = ClsBlue.copy(alpha = 0.4f), spotColor = ClsBlue.copy(alpha = 0.5f))
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Row(Modifier.fillMaxWidth().height(56.dp).shadow(12.dp, Capsule(), ambientColor = ClsBlue.copy(alpha = 0.4f), spotColor = ClsBlue.copy(alpha = 0.5f))
                         .clip(Capsule()).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF39A0FF), Color(0xFF1F6FEB), Color(0xFF3B7BFF)))).clickable { start(c) },
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        Icon("mic", Color.White, 24.dp, 2.3f); Spacer(Modifier.width(12.dp))
-                        BasicText(if (Live.running.value) "回到课堂" else "开始上课", style = T.Btn.copy(color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold))
+                        Icon("mic", Color.White, 22.dp, 2.3f); Spacer(Modifier.width(10.dp))
+                        BasicText(if (Live.running.value) "回到课堂" else "开始上课", style = T.Btn.copy(color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold))
                     }
-                    Spacer(Modifier.height(10.dp))
-                    BasicText("开始录音并实时整理笔记 · 不足 30 秒自动作废", Modifier.fillMaxWidth(), style = T.Cap.copy(textAlign = TextAlign.Center))
+                    Spacer(Modifier.height(6.dp))
+                    BasicText("开始录音并实时整理笔记 · 不足 30 秒自动作废", Modifier.fillMaxWidth(), style = T.Cap.copy(textAlign = TextAlign.Center, fontSize = 11.5.sp))
                 }
             }
         }

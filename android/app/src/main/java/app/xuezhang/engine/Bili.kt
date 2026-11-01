@@ -25,7 +25,7 @@ import java.io.RandomAccessFile
 
 /** 导入 B 站录播课：解析链接 → 只下载音轨 → 对齐课件 → 识别 → 标注补全 → 生成笔记。 */
 object Bili {
-    private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+    private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
     data class Page(val cid: Long, val part: String, val duration: Int)
     data class Info(val bvid: String, val title: String, val owner: String, val duration: Int, val pic: String, val pages: List<Page>)
@@ -48,18 +48,25 @@ object Bili {
             d.optInt("duration"), d.optString("pic"), pages)
     }
 
-    /** playurl(fnval=16) 返回的 dash.audio 里挑码率最低的一条（够识别、最省流量）。 */
-    fun pickAudio(json: String): Pair<String, Long>? {
+    /** playurl(fnval=16) 返回的 dash.audio 里挑候选地址列表（主地址 + 备份地址，码率低优先）。 */
+    fun pickAudioCandidates(json: String): List<String> {
         val o = JSONObject(json)
-        if (o.optInt("code", -1) != 0) return null
-        val a = o.optJSONObject("data")?.optJSONObject("dash")?.optJSONArray("audio") ?: return null
-        var best: JSONObject? = null
-        for (i in 0 until a.length()) {
-            val x = a.getJSONObject(i)
-            if (best == null || x.optLong("bandwidth") < best.optLong("bandwidth")) best = x
+        if (o.optInt("code", -1) != 0) return emptyList()
+        val a = o.optJSONObject("data")?.optJSONObject("dash")?.optJSONArray("audio") ?: return emptyList()
+        val items = (0 until a.length()).map { a.getJSONObject(it) }.sortedBy { it.optLong("bandwidth") }
+        val list = mutableListOf<String>()
+        items.forEach { x ->
+            x.optString("baseUrl").takeIf { it.isNotBlank() }?.let { list.add(it) }
+            x.optString("base_url").takeIf { it.isNotBlank() }?.let { list.add(it) }
+            x.optJSONArray("backupUrl")?.let { b -> (0 until b.length()).mapNotNull { b.optString(it).takeIf { u -> u.isNotBlank() } }.forEach { list.add(it) } }
+            x.optJSONArray("backup_url")?.let { b -> (0 until b.length()).mapNotNull { b.optString(it).takeIf { u -> u.isNotBlank() } }.forEach { list.add(it) } }
         }
-        val b = best ?: return null
-        return b.optString("baseUrl").ifBlank { b.optString("base_url") } to b.optLong("bandwidth")
+        return list.distinct()
+    }
+
+    fun pickAudio(json: String): Pair<String, Long>? {
+        val urls = pickAudioCandidates(json)
+        return urls.firstOrNull()?.let { it to 0L }
     }
 
     // ---------- 网络 ----------
@@ -81,18 +88,61 @@ object Bili {
     fun info(bvid: String): Info = parseInfo(get("https://api.bilibili.com/x/web-interface/view?bvid=$bvid"))
 
     fun downloadAudio(bvid: String, cid: Long, out: File, onProgress: (Long, Long) -> Unit) {
-        val (url, _) = pickAudio(get("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&fnval=16&fnver=0&fourk=0"))
-            ?: throw ApiException("没有拿到音轨地址（可能需要登录或是付费视频）")
-        val req = Request.Builder().url(url).header("User-Agent", UA).header("Referer", "https://www.bilibili.com/video/$bvid").build()
-        Api.http.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) throw ApiException("音轨下载失败 ${r.code}")
-            val body = r.body!!
-            val total = body.contentLength()
-            body.byteStream().use { ins -> out.outputStream().use { os ->
-                val buf = ByteArray(64 * 1024); var n: Int; var done = 0L
-                while (ins.read(buf).also { n = it } > 0) { os.write(buf, 0, n); done += n; onProgress(done, total) }
-            } }
+        val playJson = get("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&fnval=16&fnver=0&fourk=0")
+        val candidates = pickAudioCandidates(playJson).toMutableList()
+
+        // 兜底：如果 DASH 没有音频，尝试普通流媒体（durl）
+        if (candidates.isEmpty()) {
+            runCatching {
+                val durlJson = get("https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid&qn=16&fnval=0&fnver=0&platform=html5")
+                val durl = JSONObject(durlJson).optJSONObject("data")?.optJSONArray("durl")?.optJSONObject(0)?.optString("url").orEmpty()
+                if (durl.isNotBlank()) candidates.add(durl)
+            }
         }
+
+        if (candidates.isEmpty()) {
+            throw ApiException("没有拿到音轨地址（可能需要登录或是付费视频）")
+        }
+
+        var lastError: Exception? = null
+        for (url in candidates) {
+            try {
+                // B 站 CDN 防盗链：必须有 Range、Referer 和合规 UA
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", UA)
+                    .header("Referer", "https://www.bilibili.com/video/$bvid")
+                    .header("Range", "bytes=0-")
+                    .build()
+                Api.http.newCall(req).execute().use { r ->
+                    if (r.code !in 200..299) {
+                        throw ApiException("HTTP ${r.code}")
+                    }
+                    val body = r.body ?: throw ApiException("空响应体")
+                    val total = body.contentLength().coerceAtLeast(0L)
+                    body.byteStream().use { ins ->
+                        out.outputStream().use { os ->
+                            val buf = ByteArray(64 * 1024)
+                            var n: Int
+                            var done = 0L
+                            while (ins.read(buf).also { n = it } > 0) {
+                                os.write(buf, 0, n)
+                                done += n
+                                onProgress(done, if (total > 0L) total else done)
+                            }
+                        }
+                    }
+                    if (out.exists() && out.length() > 1024L) {
+                        return // 下载成功
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = e
+                // 尝试下一个候选地址
+            }
+        }
+
+        throw ApiException("音轨下载失败：" + (lastError?.message ?: "所有音轨地址均无响应"))
     }
 
     // ---------- 解码切片：m4a → 16k 单声道 wav，每片 chunkSec 秒 ----------

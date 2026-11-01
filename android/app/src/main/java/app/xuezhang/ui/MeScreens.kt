@@ -2,14 +2,18 @@ package app.xuezhang.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Environment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +49,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -169,6 +175,24 @@ private fun Seg(items: List<String>, sel: Int, w: Int = 180, onSel: (Int) -> Uni
     LiquidSegmented(items = items, selected = sel, onSelect = onSel, modifier = Modifier.width(w.dp), height = 38.dp)
 
 @Composable
+fun UserAvatarView(avatar: String, size: androidx.compose.ui.unit.Dp = 64.dp, modifier: Modifier = Modifier) {
+    val isFile = remember(avatar) { avatar.isNotBlank() && File(avatar).exists() }
+    val bmp = remember(avatar, isFile) {
+        if (isFile) runCatching { BitmapFactory.decodeFile(avatar)?.asImageBitmap() }.getOrNull() else null
+    }
+    Box(
+        modifier.size(size).clip(Capsule()).background(Brush.linearGradient(listOf(Color(0xFFE2EDFF), Color(0xFFC8DBFF)))),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bmp != null) {
+            Image(bmp, "头像", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            BasicText(avatar.ifBlank { "学" }, style = T.Title.copy(color = MeBlue, fontSize = (size.value * 0.44f).sp))
+        }
+    }
+}
+
+@Composable
 fun SettingsTab() {
     val s = Store.settings.value
     val scope = rememberCoroutineScope()
@@ -208,12 +232,7 @@ fun SettingsTab() {
                 val accountText = if (s.userEmail.isNotBlank()) s.userEmail else if (s.account.isNotBlank() && s.account != "guest") s.account else "本地用户"
 
                 Row(Modifier.clickable { showProfileDialog = true }, verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(64.dp).clip(Capsule()).background(Brush.linearGradient(listOf(Color(0xFFE2EDFF), Color(0xFFC8DBFF)))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        BasicText(s.userAvatar.ifBlank { "学" }, style = T.Title.copy(color = MeBlue, fontSize = 28.sp))
-                    }
+                    UserAvatarView(s.userAvatar, 64.dp)
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -305,7 +324,7 @@ fun SettingsTab() {
                 MeRow(
                     "hexset",
                     "高级设置",
-                    value = if (s.promptOverrides.isEmpty() && s.chunkSec == 15 && s.confirmFill) "未自定义" else "已配置",
+                    value = if (s.promptOverrides.isEmpty() && s.chunkSec == 15 && s.confirmFill) "" else "已配置",
                     expanded = advOpen,
                     onClick = { advOpen = !advOpen }
                 )
@@ -341,7 +360,7 @@ fun SettingsTab() {
                 MeRow(
                     "users",
                     "连接账户",
-                    value = if (linkedAccounts.isEmpty()) "未连接 · 支持 Gitee / GitHub / Google" else linkedAccounts.joinToString(" · "),
+                    value = if (linkedAccounts.isEmpty()) "" else linkedAccounts.joinToString(" · "),
                     onClick = { Nav.push(Route.Accounts) }
                 )
                 MeLine()
@@ -395,22 +414,57 @@ fun SettingsTab() {
         item { BottomSpacer() }
     }
 
-    // 1. 头像与昵称修改弹窗
+    // 1. 头像与昵称修改弹窗（支持相册自定义上传与预设选择）
     if (showProfileDialog) {
         var editName by remember { mutableStateOf(s.userName) }
         var selectedAvatar by remember { mutableStateOf(s.userAvatar) }
+        val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            uri ?: return@rememberLauncherForActivityResult
+            runCatching {
+                val dir = File(ctx.filesDir, "avatars").apply { mkdirs() }
+                val f = File(dir, "avatar_${System.currentTimeMillis()}.png")
+                ctx.contentResolver.openInputStream(uri)?.use { ins ->
+                    f.outputStream().use { ins.copyTo(it) }
+                }
+                if (f.exists() && f.length() > 0L) {
+                    selectedAvatar = f.absolutePath
+                }
+            }
+        }
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable { showProfileDialog = false },
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).clickable { showProfileDialog = false },
             contentAlignment = Alignment.Center
         ) {
             Column(
                 Modifier.padding(24.dp).fillMaxWidth().shadow(20.dp, RoundedCornerShape(28.dp))
-                    .clip(RoundedCornerShape(28.dp)).background(Color.White).clickable(interactionSource = null, indication = null) {}
+                    .clip(RoundedCornerShape(28.dp)).background(if (ThemeState.dark) Color(0xFF1E2129) else Color.White)
+                    .clickable(interactionSource = null, indication = null) {}
                     .padding(22.dp)
             ) {
                 BasicText("更换头像与昵称", style = T.Head.copy(fontSize = 19.sp))
                 Spacer(Modifier.height(16.dp))
-                BasicText("挑选头像", style = T.Label.copy(fontSize = 13.5.sp, color = C.Sec))
+
+                // 当前选定头像预览与相册上传按钮
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    UserAvatarView(selectedAvatar, 60.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(
+                            Modifier.clip(Capsule()).background(MeBlue.copy(alpha = 0.12f))
+                                .clickable { photoPicker.launch("image/*") }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon("image", MeBlue, 18.dp); Spacer(Modifier.width(6.dp))
+                            BasicText("相册选取照片", style = T.Btn.copy(color = MeBlue, fontSize = 13.5.sp))
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        BasicText("支持任意相册图片作为自定义头像", style = T.Cap.copy(fontSize = 11.5.sp))
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                BasicText("或选择预设头像", style = T.Label.copy(fontSize = 13.sp, color = C.Sec))
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     presetAvatars.forEach { av ->
@@ -446,12 +500,13 @@ fun SettingsTab() {
     // 2. 云备份确认弹窗
     if (showBackupDialog) {
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable { showBackupDialog = false },
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).clickable { showBackupDialog = false },
             contentAlignment = Alignment.Center
         ) {
             Column(
                 Modifier.padding(24.dp).fillMaxWidth().shadow(20.dp, RoundedCornerShape(28.dp))
-                    .clip(RoundedCornerShape(28.dp)).background(Color.White).clickable(interactionSource = null, indication = null) {}
+                    .clip(RoundedCornerShape(28.dp)).background(if (ThemeState.dark) Color(0xFF1E2129) else Color.White)
+                    .clickable(interactionSource = null, indication = null) {}
                     .padding(22.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

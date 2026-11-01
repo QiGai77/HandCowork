@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -102,13 +103,62 @@ fun ConceptMapV6(l: Lecture) {
     }
 }
 
-/** 复习卡：叠放的卡组，左右滑走顶上一张（弹簧动画），点按翻面。 */
+/** 复习卡：叠放的卡组，左右滑走顶上一张（弹簧动画），点按翻面。支持大模型根据笔记重新出题。 */
 @Composable
 fun CardDeck(l: Lecture) {
-    if (l.cards.isEmpty()) { EmptyHint("还没有复习卡", "生成笔记后会出现"); return }
+    val scope = rememberCoroutineScope()
+    var regenerating by remember(l.id) { mutableStateOf(false) }
     var idx by remember(l.id) { mutableIntStateOf(0) }
     val total = l.cards.size
-    val scope = rememberCoroutineScope()
+
+    fun regenCards() {
+        if (regenerating) return
+        val text = (l.notes.ifBlank { l.sections.joinToString("\n") { "${it.title}\n${it.body}" } }).take(10000)
+        if (text.isBlank()) {
+            Island.show("笔记内容为空，无法生成复习卡", Island.Kind.Warn)
+            return
+        }
+        regenerating = true
+        scope.launch {
+            try {
+                Island.show("学长正在重新出题…", Island.Kind.Info)
+                val o = withContext(Dispatchers.IO) {
+                    Api.chatJson(Prompts.CARDS_REGEN, text)
+                }
+                val arr = o.optJSONArray("cards") ?: org.json.JSONArray()
+                val newCards = (0 until arr.length()).map { i ->
+                    val c = arr.getJSONObject(i)
+                    app.xuezhang.data.Card(
+                        q = c.optString("q"),
+                        a = c.optString("a"),
+                        tag = c.optString("tag").ifBlank { "概念" },
+                        level = 0
+                    )
+                }.filter { it.q.isNotBlank() && it.a.isNotBlank() }
+                if (newCards.isNotEmpty()) {
+                    Store.upsertLecture(l.copy(cards = newCards))
+                    idx = 0
+                    Island.show("已重新生成 ${newCards.size} 张复习卡", Island.Kind.Done)
+                } else {
+                    Island.show("未能生成有效题目，请重试", Island.Kind.Warn)
+                }
+            } catch (e: Exception) {
+                Island.show("出题失败：${e.message?.take(30)}", Island.Kind.Warn)
+            } finally {
+                regenerating = false
+            }
+        }
+    }
+
+    if (l.cards.isEmpty()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            EmptyHint("还没有复习卡", "可以让学长根据这节课笔记自动出题")
+            Spacer(Modifier.height(12.dp))
+            Btn(if (regenerating) "学长出题中…" else "重新出题", { regenCards() }, Modifier.fillMaxWidth(0.6f), tint = C.Blue)
+        }
+        return
+    }
+
     val styleIdx = Store.settings.value.cardStyle
     val skin = Skins.card(styleIdx)
     Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -116,6 +166,10 @@ fun CardDeck(l: Lecture) {
         // 换卡面（10 种默认样式循环）
         Box(Modifier.padding(end = 8.dp).size(26.dp).clip(com.kyant.shapes.Capsule()).background(skin.brush)
             .clickable { Store.updateSettings(Store.settings.value.copy(cardStyle = (styleIdx + 1) % Skins.cards.size)) })
+        BasicText(if (regenerating) "出题中…" else "重新出题", Modifier.clip(com.kyant.shapes.Capsule()).background(C.Fill)
+            .clickable(enabled = !regenerating) { regenCards() }
+            .padding(horizontal = 12.dp, vertical = 6.dp), style = T.Btn.copy(fontSize = 13.sp, color = if (regenerating) C.Sec else C.Blue))
+        Spacer(Modifier.width(8.dp))
         BasicText("重来", Modifier.clip(com.kyant.shapes.Capsule()).background(C.Fill).clickable { idx = 0 }.padding(horizontal = 14.dp, vertical = 6.dp), style = T.Btn.copy(fontSize = 13.sp))
     }
     Box(Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth().height(380.dp), contentAlignment = Alignment.TopCenter) {

@@ -13,8 +13,8 @@ object SlideParser {
     data class Result(val name: String, val pages: Int, val hotwords: List<String>, val slides: List<Slide>)
 
     fun extract(ctx: Context, uri: Uri, name: String, onProgress: (Int, Int) -> Unit): List<Pair<Int, String>> {
-        val lower = name.lowercase()
-        return if (lower.endsWith(".pdf")) {
+        val isPdf = (uri.path?.endsWith(".pdf", ignoreCase = true) == true) || name.endsWith(".pdf", ignoreCase = true)
+        return if (isPdf) {
             PDFBoxResourceLoader.init(ctx)
             (if (uri.scheme == "file") java.io.FileInputStream(uri.path!!) else ctx.contentResolver.openInputStream(uri)!!).use { ins ->
                 PDDocument.load(ins).use { doc ->
@@ -30,12 +30,12 @@ object SlideParser {
             val re = Regex("ppt/slides/slide(\\d+)\\.xml")
             fun text(xml: String) = Regex("<a:t>([^<]*)</a:t>").findAll(xml).joinToString(" ") { it.groupValues[1] }
             if (uri.scheme == "file") {
-                // 本地副本：先数出总页数，再逐页读，进度是真实的「第 n / 共 N 页」
-                java.util.zip.ZipFile(java.io.File(uri.path!!)).use { zf ->
+                val file = java.io.File(uri.path!!)
+                java.util.zip.ZipFile(file).use { zf ->
                     val entries = zf.entries().toList().mapNotNull { e -> re.matchEntire(e.name)?.let { it.groupValues[1].toInt() to e } }.sortedBy { it.first }
                     entries.mapIndexed { i, (n, e) ->
                         onProgress(i + 1, entries.size)
-                        n to text(zf.getInputStream(e).use { it.readBytes().toString(Charsets.UTF_8) })
+                        (i + 1) to text(zf.getInputStream(e).use { it.readBytes().toString(Charsets.UTF_8) })
                     }
                 }
             } else {
@@ -49,24 +49,18 @@ object SlideParser {
                         }
                     }
                 }
-                map.entries.mapIndexed { i, en -> onProgress(i + 1, map.size); en.key to en.value }
+                map.entries.mapIndexed { i, en -> onProgress(i + 1, map.size); (i + 1) to en.value }
             }
         }
     }
 
-    /** 把课件复制到 app 私有目录，若为 PPT/PPTX 则通过内置工具自动转换为标准 PDF，以获得原生高质量渲染。 */
+    /** 把课件复制到 app 私有目录，保留原文件并返回本地私有绝对路径。 */
     fun copyLocal(ctx: Context, uri: Uri, name: String, id: String): String = runCatching {
         val ext = name.substringAfterLast('.', "pdf").lowercase().take(5)
         val dir = java.io.File(ctx.filesDir, "slides").apply { mkdirs() }
         val f = java.io.File(dir, "$id.$ext")
         (if (uri.scheme == "file") java.io.FileInputStream(uri.path!!) else ctx.contentResolver.openInputStream(uri)!!).use { i ->
             f.outputStream().use { i.copyTo(it) }
-        }
-        if (ext == "pptx" || ext == "ppt") {
-            val pdfFile = java.io.File(dir, "$id.pdf")
-            if (PptxToPdfConverter.convert(f, pdfFile)) {
-                return@runCatching pdfFile.absolutePath
-            }
         }
         f.absolutePath
     }.getOrDefault("")

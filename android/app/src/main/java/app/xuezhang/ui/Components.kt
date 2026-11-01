@@ -100,7 +100,7 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: 
         return
     }
     app.xuezhang.glass.LiquidButton(onClick, backdrop, modifier, tint = tint,
-        surfaceColor = if (tint == Color.Unspecified) Color.White.copy(alpha = 0.42f) else Color.Unspecified) {
+        surfaceColor = if (tint == Color.Unspecified) (if (ThemeState.dark) Color(0xFF242730).copy(alpha = 0.65f) else Color.White.copy(alpha = 0.42f)) else Color.Unspecified) {
         if (icon != null) Icon(icon, color, 17.dp)
         BasicText(text, style = T.Btn.copy(color = color), maxLines = 1)
     }
@@ -108,7 +108,7 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: 
 fun Modifier.glass(
     backdrop: Backdrop,
     shape: Shape = Capsule(),
-    surface: Color = Color.White.copy(alpha = 0.5f),
+    surface: Color = if (ThemeState.dark) Color(0xFF1E2128).copy(alpha = 0.80f) else Color.White.copy(alpha = 0.5f),
     tint: Color = Color.Unspecified,
     blurDp: Float = 6f,
     lensH: Float = 14f,
@@ -154,7 +154,7 @@ fun PlainCard(modifier: Modifier = Modifier, radius: Dp = 22.dp, padding: Paddin
     val shape = RoundedCornerShape(radius)
     val bg = LocalBg.current
     Column(
-        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = if (ThemeState.dark) Color(0xFF1C1E24).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.58f), blurDp = 12f, lensH = 10f, lensA = 18f)
+        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = if (ThemeState.dark) Color(0xFF181A22).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.58f), blurDp = 12f, lensH = 10f, lensA = 18f)
         else modifier.shadow(10.dp, shape, ambientColor = Color(0x14000000), spotColor = Color(0x10000000)).background(C.Card, shape))
             .clip(shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
@@ -208,7 +208,7 @@ fun LiquidSegmented(backdrop: Backdrop = LocalBg.current!!, items: List<String>,
             Modifier.offset(x = w * pos.value).width(w).fillMaxHeight()
                 .graphicsLayer { scaleX = 1f + 0.18f * stretch.value; scaleY = 1f - 0.08f * stretch.value }
                 .shadow(4.dp, Capsule(), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
-                .clip(Capsule()).background(Color.White)
+                .clip(Capsule()).background(if (ThemeState.dark) Color(0xFF2C2F38) else Color.White)
         )
         Row(Modifier.fillMaxWidth().fillMaxHeight()) {
             items.forEachIndexed { i, s ->

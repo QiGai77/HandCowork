@@ -186,8 +186,8 @@ private fun Board() {
     Box(Modifier.padding(horizontal = s.BoardInsetH).fillMaxWidth().height(s.BoardH)
         .shadow(6.dp, RoundedCornerShape(s.BoardR), ambientColor = NT.Shadow.Board.third, spotColor = NT.Shadow.Board.third)
         .clip(RoundedCornerShape(s.BoardR))
-        .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0xFFE7E2DA))))
-        .border(1.dp, Color.White, RoundedCornerShape(s.BoardR)))
+        .background(if (ThemeState.dark) Brush.verticalGradient(listOf(Color(0xFF23252E), Color(0xFF16181E))) else Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0xFFE7E2DA))))
+        .border(1.dp, if (ThemeState.dark) Color(0x22FFFFFF) else Color.White, RoundedCornerShape(s.BoardR)))
 }
 
 private val AreaH = 140.dp
@@ -498,19 +498,19 @@ private fun NoteCards(all: List<Lecture>) {
             val card = NT.Dim.Card
             val shape = RoundedCornerShape(card.R)
             Row(Modifier.fillMaxWidth().shadow(4.dp, shape, ambientColor = NT.Shadow.Card.third, spotColor = NT.Shadow.Card.third).clip(shape)
-                .background(Color.White.copy(alpha = 0.78f)).border(card.Border, NT.Colors.Glass.CardBorder, shape)
+                .background(if (ThemeState.dark) Color(0xFF1C1E24).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.78f)).border(card.Border, if (ThemeState.dark) Color(0x22FFFFFF) else NT.Colors.Glass.CardBorder, shape)
                 .clickable { open(l) }.padding(card.Pad)) {
                 MiniCover(c, l, pal)
                 Spacer(Modifier.width(card.ThumbGap))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        BasicText(l.title, Modifier.weight(1f), style = NT.Type.CardTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        BasicText(l.title, Modifier.weight(1f), style = NT.Type.CardTitle.copy(color = C.Ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.width(8.dp))
                         BasicText(fmt.format(Date(l.date)), style = NT.Type.CardDate)
                     }
                     Spacer(Modifier.height(card.TitleBodyGap))
                     val sum = remember(l.id, l.sections.size, l.notes.length) { summary(l) }
-                    BasicText(if (l.status == 1) "学长正在整理这节课的笔记…" else sum.ifBlank { "（还没有内容）" }, style = NT.Type.CardBody.copy(color = Color(0xFF2A2A2A)),
+                    BasicText(if (l.status == 1) "学长正在整理这节课的笔记…" else sum.ifBlank { "（还没有内容）" }, style = NT.Type.CardBody.copy(color = C.Sec),
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val job = if (l.status == 1) aiJob("notes:${l.id}") else null
                     val exams = l.segments.count { it.exam }
