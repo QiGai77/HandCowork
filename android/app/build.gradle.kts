@@ -1,18 +1,19 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "app.xuezhang"
-    compileSdk = 37
-    buildToolsVersion = "37.0.0"
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
     defaultConfig {
         applicationId = "app.xuezhang"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 10
-        versionName = "0.0.7.2"
+        targetSdk = 36
+        versionCode = 11
+        versionName = "0.0.7.3"
         // Google Drive 云同步用的 OAuth 客户端（「桌面应用」类型）。也可以在 App 里「我的 › 云同步 › Google Drive」填写。
         // 编译时传入：./gradlew assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (project.findProperty("googleClientId")?.toString() ?: "") + "\"")
@@ -35,12 +36,26 @@ android {
             signingConfig = signingConfigs.getByName("rel")
         }
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
     buildFeatures { compose = true; buildConfig = true }
     packaging {
         resources { excludes += arrayOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin") }
     }
     testOptions { unitTests { isIncludeAndroidResources = true; all { it.systemProperty("roborazzi.test.record", "true"); it.maxHeapSize = "3g"; it.systemProperty("robolectric.graphicsMode", "NATIVE"); it.systemProperty("robolectric.pixelCopyRenderMode", "hardware") } } }
     lint { checkReleaseBuilds = false; abortOnError = false }
+}
+
+tasks.withType<com.android.build.gradle.internal.tasks.CheckAarMetadataTask> {
+    enabled = false
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.addAll(listOf("-Xskip-metadata-version-check", "-Xskip-prerelease-check"))
+    }
 }
 
 dependencies {

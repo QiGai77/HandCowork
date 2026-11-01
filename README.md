@@ -8,7 +8,7 @@
 
 录音实时转写，AI 学长按课件逐页讲解，图表能拖，题目能做。
 
-![version](https://img.shields.io/badge/version-0.0.7-0A84FF)
+![version](https://img.shields.io/badge/version-0.0.7.3-0A84FF)
 ![android](https://img.shields.io/badge/Android-8.0%2B-34C759)
 ![compose](https://img.shields.io/badge/Jetpack-Compose-4285F4)
 ![status](https://img.shields.io/badge/状态-测试版-FF9500)
@@ -28,6 +28,16 @@
 | **模型** | SiliconFlow、OpenAI、阿里云百炼、火山、DeepSeek、Claude 等；支持 ChatGPT / Claude 账号登录，并查看 5 小时与周额度 |
 | **同步** | Google Drive 连接器（OAuth 授权、可续传上传、文件夹与上传状态）、手机云盘（系统文件选择器）、WebDAV |
 | **分享** | 笔记导出 DOCX、PDF、Markdown 或长图 |
+
+## v0.0.7.3 更新
+
+- **纯背景笔记封面**：笔记默认不要以字作为封面命名，全面取消封面正中强制绘制的大号汉字/首字符水印（`glyph`）及印章，呈现纯净的书籍装帧布纹肌理、低饱和度色系与烫金压凹线框，保留优雅自然质感。
+- **PPTX 原生页面解析与实时高保真查看**：重构 PPTX 解包与矢量渲染管线，全面支持 XML 原生形状图形（`<p:sp>`、`<p:pic>`、`<p:graphicFrame>`、`<p:cxnSp>`）与原生表格结构（`<a:tbl>`）；支持解析 `ppt/theme/theme1.xml` 主题配色与幻灯片原始背景，避免落入简陋纯文本列表（`renderPptxSimple`）降级模式，实现原生页面高保真还原。
+- **移动端交互精简与防误触**：
+  - 底部导航栏：移除挤占 25% 宽度的 64dp 悬浮搜索泡泡与长按拖拽重排冲突，4 个导航 Tab（课程、上课、笔记、我的）均匀呼吸分布，符合单手拇指人体工学。
+  - 下课防误触：控制坞红色「下课」按钮加入双击确认机制，防止课堂误触直接截断录音与课件分析。
+  - 顶栏交互精简：课程卡片页移除冗余的「切换课程」胶囊，直接点击课程标题即可呼出切换菜单。
+  - 沉浸阅读视图：移除翻书阅读器右下角遮挡正文长达 70dp 的静态卷页装饰，恢复沉浸式全宽无障碍阅读。
 
 ## v0.0.7 更新
 
