@@ -1,0 +1,78 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek 官方",
+      "style": "openai",
+      "baseUrl": "https://api.deepseek.com",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "defaultModel": "deepseek-chat",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "caps": [
+        "chat"
+      ],
+      "note": "支持 DeepSeek-V3 对话与 R1 深度思考推理"
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动 (SiliconFlow)",
+      "style": "openai",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "defaultModel": "deepseek-ai/DeepSeek-V3",
+      "models": [
+        "deepseek-ai/DeepSeek-V3",
+        "deepseek-ai/DeepSeek-R1",
+        "Qwen/Qwen2.5-72B-Instruct",
+        "FunAudioLLM/SenseVoiceSmall"
+      ],
+      "caps": [
+        "chat",
+        "asr"
+      ],
+      "note": "国内高速直连，支持 V3/R1 及 SenseVoice 语音转写"
+    },
+    {
+      "id": "moonshot-kimi",
+      "name": "月之暗面 Kimi",
+      "style": "openai",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "authHeader": "Authorization",
+      "authPrefix": "Bearer ",
+      "defaultModel": "moonshot-v1-8k",
+      "models": [
+        "moonshot-v1-8k",
+        "moonshot-v1-32k",
+        "moonshot-v1-128k"
+      ],
+      "caps": [
+        "chat",
+        "vision"
+      ],
+      "note": "长上下文分析与图片识别"
+    },
+    {
+      "id": "ollama-local",
+      "name": "Ollama 本地私有算力",
+      "style": "openai",
+      "baseUrl": "http://10.0.2.2:11434/v1",
+      "authHeader": "Authorization",
+      "authPrefix": "",
+      "defaultModel": "qwen2.5:7b",
+      "models": [
+        "qwen2.5:7b",
+        "llama3.1:8b",
+        "deepseek-r1:8b"
+      ],
+      "caps": [
+        "chat"
+      ],
+      "note": "局域网或手机端通过 Termux/PC 运行本地大模型"
+    }
+  ]
+}

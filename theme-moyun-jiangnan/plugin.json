@@ -1,0 +1,20 @@
+{
+  "id": "theme-moyun-jiangnan",
+  "name": "墨韵江南",
+  "version": "1.0.0",
+  "author": "课堂学长",
+  "description": "古雅水墨江南主题：宣纸底色、焦墨排版、毛笔墨迹进度条、朱砂印章按键与水墨晕染开屏动画。",
+  "types": [
+    "theme",
+    "covers",
+    "splash"
+  ],
+  "apiVersion": 1,
+  "minApp": "0.0.7.8",
+  "entries": {
+    "theme": "theme.json",
+    "splash": "splash.json",
+    "covers": "covers.json"
+  },
+  "license": "OFL-1.1 & CC0"
+}

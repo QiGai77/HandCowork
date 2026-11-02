@@ -1,0 +1,31 @@
+{
+  "id": "skill-speech-refine",
+  "name": "识别优化与考点萃取",
+  "version": "1.0.0",
+  "author": "课堂学长",
+  "description": "针对上课语音特调：端侧去语气词、口吃合并、口误修正，大模型提取考点核心与公式，拒绝啰嗦流水账。",
+  "types": [
+    "skills",
+    "prompts"
+  ],
+  "apiVersion": 1,
+  "minApp": "0.0.7.8",
+  "entries": {
+    "skills": "skills/refine.json",
+    "prompts": "prompts/refine.md"
+  },
+  "settings": [
+    {
+      "key": "level",
+      "label": "精炼强度",
+      "type": "choice",
+      "options": [
+        "轻",
+        "中",
+        "强"
+      ],
+      "default": "中"
+    }
+  ],
+  "license": "Apache-2.0"
+}

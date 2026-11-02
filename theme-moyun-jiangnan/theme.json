@@ -1,0 +1,26 @@
+{
+  "name": "墨韵江南",
+  "forceLight": true,
+  "colors": {
+    "bg": "#F3EEE2",
+    "card": "#EBE3D3",
+    "ink": "#2B2B2B",
+    "sec": "#5A5A5A",
+    "ter": "#8C857B",
+    "line": "#D9D0C1",
+    "accent": "#B5442E",
+    "accent2": "#2F4F4F",
+    "seal": "#B5442E",
+    "paper": "#F7F3E9",
+    "readerInk": "#222222"
+  },
+  "nav": {
+    "style": "ink"
+  },
+  "button": {
+    "style": "seal"
+  },
+  "progress": {
+    "style": "brush"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "kind": "transcript-pipeline",
+  "steps": [
+    {
+      "op": "fillers",
+      "level": 1,
+      "words": [
+        "嗯",
+        "呃",
+        "那个",
+        "这个",
+        "就是说",
+        "然后呢",
+        "所谓这个"
+      ]
+    },
+    {
+      "op": "particles",
+      "level": 2,
+      "words": [
+        "啊",
+        "呀",
+        "嘛",
+        "呢",
+        "吧"
+      ]
+    },
+    {
+      "op": "tags",
+      "level": 2,
+      "words": [
+        "对吧",
+        "是吧",
+        "明白吧",
+        "听懂了吧",
+        "是不是"
+      ]
+    },
+    {
+      "op": "stutter",
+      "level": 1,
+      "maxLen": 4,
+      "chars": "的了是在把这那我你他它就"
+    },
+    {
+      "op": "selfCorrection",
+      "level": 1,
+      "markers": [
+        "不对",
+        "说错了",
+        "应该是",
+        "更正一下",
+        "不是"
+      ]
+    },
+    {
+      "op": "dropSentence",
+      "level": 3,
+      "patterns": [
+        "手机(收一下|别看了)",
+        "后面的同学往(前|里)坐",
+        "上节课我们讲到",
+        "听得清吗"
+      ]
+    },
+    {
+      "op": "mark",
+      "level": 1,
+      "tag": "exam",
+      "patterns": [
+        "重点",
+        "必考",
+        "要考",
+        "期末",
+        "划重点",
+        "注意这个公式",
+        "每年都出题"
+      ]
+    },
+    {
+      "op": "tidy",
+      "level": 1
+    }
+  ],
+  "llm": {
+    "refine": "prompts/refine.md"
+  }
+}

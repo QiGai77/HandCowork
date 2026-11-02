@@ -1,0 +1,53 @@
+{
+  "apiVersion": 1,
+  "plugins": [
+    {
+      "id": "skill-speech-refine",
+      "name": "识别优化与考点萃取",
+      "version": "1.0.0",
+      "types": [
+        "skills",
+        "prompts"
+      ],
+      "apiVersion": 1,
+      "minApp": "0.0.7.8",
+      "sha256": "6a7fc8c648d7e800bb0c0e556a875e7704e7d6152ff44b91894a400727e7bef2",
+      "size": 1967,
+      "path": "packages/skill-speech-refine.xzplugin",
+      "summary": "针对上课语音特调：端侧去语气词、口吃合并、口误修正，大模型提取考点核心与公式，拒绝啰嗦流水账。",
+      "author": "课堂学长"
+    },
+    {
+      "id": "theme-moyun-jiangnan",
+      "name": "墨韵江南",
+      "version": "1.0.0",
+      "types": [
+        "theme",
+        "covers",
+        "splash"
+      ],
+      "apiVersion": 1,
+      "minApp": "0.0.7.8",
+      "sha256": "846981a1e973ee7398e4ee9870447d2fb78d7c00f01e9d643fb571538effea2a",
+      "size": 1200,
+      "path": "packages/theme-moyun-jiangnan.xzplugin",
+      "summary": "古雅水墨江南主题：宣纸底色、焦墨排版、毛笔墨迹进度条、朱砂印章按键与水墨晕染开屏动画。",
+      "author": "课堂学长"
+    },
+    {
+      "id": "provider-universal-hub",
+      "name": "大模型供应商兼容中心",
+      "version": "1.0.0",
+      "types": [
+        "provider"
+      ],
+      "apiVersion": 1,
+      "minApp": "0.0.7.8",
+      "sha256": "8e56e018565795ea6ac31c64c9fd877b143dd4533ddbaabc9aa354e2eefd0ab2",
+      "size": 1283,
+      "path": "packages/provider-universal-hub.xzplugin",
+      "summary": "一键导入任意第三方大模型或中转服务（DeepSeek、Kimi、硅基流动、智谱GLM、通义千问、Ollama、One-API、New-API）。",
+      "author": "课堂学长"
+    }
+  ]
+}
