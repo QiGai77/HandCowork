@@ -47,7 +47,11 @@ fun AiProgressBar(job: AiJob?, modifier: Modifier = Modifier, showTip: Boolean =
             BasicText("${(f * 100).toInt()}%", style = T.Btn.copy(fontSize = 14.sp, color = C.Blue))
         }
         Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(8.dp).clip(Capsule()).background(C.Fill)) {
+        if (ThemeLook.brushProgress && err == null) {
+            // v0.0.7.8 主题插件「墨迹进度条」
+            val ink = C.Ink
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(12.dp)) { drawInkProgress(f.coerceIn(0.02f, 1f), ink) }
+        } else Box(Modifier.fillMaxWidth().height(8.dp).clip(Capsule()).background(C.Fill)) {
             Box(Modifier.fillMaxWidth(f.coerceIn(0.02f, 1f)).height(8.dp).clip(Capsule()).background(if (err != null) C.Red else C.Blue)
                 .then(if (err == null && !job.finished.value) Modifier.sheen(sheen.value) else Modifier))
         }

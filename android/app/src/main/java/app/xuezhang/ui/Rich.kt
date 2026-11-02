@@ -186,6 +186,12 @@ fun MathBlock(tex: String, style: TextStyle = T.Body, onMath: ((String) -> Unit)
     }
 }
 
+/** v0.0.7.8 翻书分页量高度时用：段落排版后把每行底部 y（相对段落块顶，px）交给分页器，好按行断页。 */
+class LineSink { var lines: List<Float> = emptyList() }
+val LocalLineSink = androidx.compose.runtime.staticCompositionLocalOf<LineSink?> { null }
+/** v0.0.7.8 为 true 时只量尺寸：图片类组件不去加载/渲染位图。 */
+val LocalMeasuring = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 private fun RichPara(src: String, style: TextStyle, onMath: ((String) -> Unit)?, onFill: ((String) -> Unit)?) {
     val d = LocalDensity.current
@@ -237,11 +243,13 @@ private fun RichPara(src: String, style: TextStyle, onMath: ((String) -> Unit)?,
     }
     val (ann, inline, decos) = built
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val sink = LocalLineSink.current
+    val padPx = with(d) { 1.dp.toPx() }
     BasicText(
         ann,
         style = style,
         inlineContent = inline,
-        onTextLayout = { layout = it },
+        onTextLayout = { r -> layout = r; sink?.lines = (0 until r.lineCount).map { padPx + r.getLineBottom(it) } },
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 1.dp)

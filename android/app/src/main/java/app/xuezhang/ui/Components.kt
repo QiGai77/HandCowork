@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -72,6 +73,7 @@ val LocalBg = androidx.compose.runtime.staticCompositionLocalOf<Backdrop?> { nul
 @Composable
 fun Ambient(modifier: Modifier = Modifier) {
     Canvas(modifier) {
+        if (drawThemeBackground()) return@Canvas   // v0.0.7.8 主题插件背景（宣纸 + 远山）
         drawRect(C.Bg)
         fun blob(cx: Float, cy: Float, r: Float, c: Color) = drawCircle(
             androidx.compose.ui.graphics.Brush.radialGradient(listOf(c, c.copy(alpha = 0f)), Offset(cx, cy), r), r, Offset(cx, cy))
@@ -91,6 +93,22 @@ fun Ambient(modifier: Modifier = Modifier) {
 @Composable
 fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: String? = null, tint: Color = Color.Unspecified,
         color: Color = if (tint == Color.Unspecified) C.Ink else Color.White, backdrop: Backdrop? = LocalBg.current) {
+    if (ThemeLook.sealButtons) {
+        // v0.0.7.8 主题插件「印章按钮」：主按钮朱砂印、次按钮淡墨描边
+        val primary = tint != Color.Unspecified
+        val seal = ThemeLook.color("seal") ?: C.Accent
+        Row(modifier.height(48.dp).clip(RoundedCornerShape(6.dp)).drawBehind {
+            if (primary) drawSeal(seal, 6.dp.toPx()) else {
+                drawRoundRect(C.Ink.copy(alpha = 0.05f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()))
+                drawRoundRect(C.Ink.copy(alpha = 0.55f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+            }
+        }.clickable(onClick = onClick).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            val fg = if (primary) Color(0xFFFBF6EA) else C.Ink
+            if (icon != null) { Icon(icon, fg, 17.dp); Spacer(Modifier.width(6.dp)) }
+            BasicText(text, style = T.Btn.copy(color = fg, fontFamily = Serif), maxLines = 1)
+        }
+        return
+    }
     if (backdrop == null) {
         Row(modifier.height(48.dp).clip(Capsule()).background(if (tint == Color.Unspecified) C.Fill else tint).clickable(onClick = onClick).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {

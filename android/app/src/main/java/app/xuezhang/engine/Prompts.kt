@@ -93,8 +93,12 @@ sections 3~8 节，按讲课顺序；nodes 第一个是本节课的根主题，�
         "segment" -> SEGMENT; "notes0" -> NOTES + "\n\n" + NOTES_SIMPLE; "notes1" -> NOTES + "\n\n" + NOTES_DETAIL
         "timetable" -> TIMETABLE; "slides" -> SLIDES; "ask" -> ASK; "mindmap" -> MINDMAP; else -> ""
     }
+    /** 优先级：用户自定义 > 已启用插件（v0.0.7.8 插件提示词/技能）> 内置。 */
     fun get(key: String, def: String = default(key)): String =
-        app.xuezhang.data.Store.settings.value.promptOverrides[key]?.takeIf { it.isNotBlank() } ?: def
+        app.xuezhang.data.Store.settings.value.promptOverrides[key]?.takeIf { it.isNotBlank() }
+            ?: app.xuezhang.engine.plugin.SkillRegistry.prompts.value[key]?.takeIf { it.isNotBlank() }
+            ?: app.xuezhang.engine.plugin.SkillRegistry.refine.value?.prompts?.get(key)?.takeIf { it.isNotBlank() }
+            ?: def
 
     const val MINDMAP = """画一张干净、专业的中文思维导图（mind map）信息图：白色背景，中心是主题，向外分支，圆角节点，层级用颜色区分，线条清晰，
 所有文字必须是给出的中文标签，字体清晰可读、不要错别字，不要出现英文或多余文字，不要插画人物。结构如下："""

@@ -59,6 +59,9 @@ object Auth {
     val claude = mutableStateOf<Token?>(null)
     /** Google Drive（云同步）授权。email = Google 账号，plan 存显示名。 */
     val google = mutableStateOf<Token?>(null)
+    /** v0.0.7.8 供应商兼容：自定义服务商的 Key（id → key），只存本机 Keystore 加密文件，不进备份/导出。 */
+    val providerKeys = androidx.compose.runtime.mutableStateMapOf<String, String>()
+    fun setProviderKey(id: String, key: String) { if (key.isBlank()) providerKeys.remove(id) else providerKeys[id] = key.trim(); persist() }
     val gptQuota = mutableStateOf<Quota?>(null)
     val claudeQuota = mutableStateOf<Quota?>(null)
     /** ChatGPT 登录进行中时的状态文字（null = 空闲）。 */
@@ -75,6 +78,7 @@ object Auth {
             chatgpt.value = Token.of(o.optJSONObject("chatgpt"))
             claude.value = Token.of(o.optJSONObject("claude"))
             google.value = Token.of(o.optJSONObject("google"))
+            o.optJSONObject("pk")?.let { pk -> pk.keys().forEach { k -> providerKeys[k] = pk.optString(k) } }
         }
     }
 
@@ -85,6 +89,7 @@ object Auth {
         chatgpt.value?.let { o.put("chatgpt", it.j()) }
         claude.value?.let { o.put("claude", it.j()) }
         google.value?.let { o.put("google", it.j()) }
+        if (providerKeys.isNotEmpty()) o.put("pk", JSONObject(providerKeys.toMap() as Map<*, *>))
         runCatching { val tmp = File(file.parentFile, "auth.bin.tmp"); tmp.writeBytes(encrypt(o.toString())); tmp.renameTo(file) }
     }
 

@@ -72,6 +72,18 @@ import app.xuezhang.data.Course
 import app.xuezhang.data.Lecture
 import app.xuezhang.data.Store
 import app.xuezhang.engine.Live
+import app.xuezhang.engine.NotePart
+import app.xuezhang.engine.ReaderPaging
+import app.xuezhang.engine.UiBlock
+import app.xuezhang.engine.UiBlocks
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.roundToInt
 import com.kyant.shapes.Capsule
 import eu.wewox.pagecurl.ExperimentalPageCurlApi
 import eu.wewox.pagecurl.config.PageCurlConfig
@@ -88,15 +100,6 @@ import java.util.Locale
 
 // =================== v0.0.7.6 翻书阅读：精装书摊开 + 真实卷页（oleksandrbalan/pagecurl）===================
 
-private sealed interface BookPage {
-    data object Cover : BookPage
-    data object Toc : BookPage
-    data class Sec(val i: Int) : BookPage
-    data object Mnemonics : BookPage
-    data object Exams : BookPage
-    data object End : BookPage
-}
-
 private val Paper = NT.Colors.Reader.Paper
 private val PaperEdge = NT.Colors.Reader.PaperEdge
 private val Ink = NT.Colors.Reader.Text
@@ -109,24 +112,104 @@ object ReaderMath {
     fun fraction(page: Int, count: Int): Float = if (count <= 1) 0f else page.toFloat() / (count - 1)
 }
 
+private sealed interface BookPage {
+    data object Cover : BookPage
+    data object Toc : BookPage
+    /** 一章（一节笔记/助记/考点）的第 part 页（0 起，共 parts 页）。slices 为 null 表示还没量完。 */
+    data class Part(val ch: Int, val part: Int, val parts: Int, val slices: List<ReaderPaging.Slice>?) : BookPage
+    data object End : BookPage
+}
+
+/** 书页里的一块内容（分页的最小单位）。 */
+private sealed interface Piece {
+    data class Head(val title: String) : Piece
+    data class Pic(val sec: Int) : Piece
+    data class Para(val text: String, val ctx: String) : Piece
+    data class Formula(val tex: String, val ctx: String) : Piece
+    data class Ui(val block: UiBlock) : Piece
+    data class Exam(val caption: String?) : Piece
+    data class Label(val text: String) : Piece
+}
+
+/** gapDp：与上一块的间距（页首忽略）；keep：与下一块第一行同页。 */
+private data class Placed(val p: Piece, val gapDp: Float = 0f, val keep: Boolean = false)
+private data class Chapter(val title: String, val items: List<Placed>, val sec: Int = -1, val thumb: Int? = null, val label: String = "")
+
+/** 正文 → 段落/公式/互动块，保持 NoteBody / RichText 的间距。 */
+private fun bodyPieces(body: String, firstGap: Float, out: MutableList<Placed>) {
+    val parts = runCatching { UiBlocks.split(body) }.getOrElse { listOf(NotePart.Text(body)) }
+    var gap = firstGap
+    parts.forEachIndexed { pi, part ->
+        if (pi > 0) gap += 10f
+        when (part) {
+            is NotePart.Ui -> { out.add(Placed(Piece.Ui(part.block), gap)); gap = 0f }
+            is NotePart.Text -> splitBlocks(part.text).forEach { b ->
+                when (b) {
+                    is Blk.Gap -> gap += 8f
+                    is Blk.Math -> { out.add(Placed(Piece.Formula(b.tex, body), gap)); gap = 0f }
+                    is Blk.P -> { out.add(Placed(Piece.Para(b.text, body), gap)); gap = 0f }
+                }
+            }
+        }
+    }
+}
+
+private val ContPad = 30.dp
+
 @OptIn(ExperimentalPageCurlApi::class)
 @Composable
-fun BookScreen(id: String, startPage: Int = 0) {
+fun BookScreen(id: String, startPage: Int = 0, startPart: Int = 0) {
     val l = Store.lecture(id) ?: run { Nav.pop(); return }
     val course = Store.course(l.courseId)
     val hc = remember(l.coverStyle, course?.name, course?.cover) { lectureHc(l, course) }
     val sections = remember(l.sections, l.notes) {
         l.sections.ifEmpty { l.notes.split(Regex("\n\\s*\n")).filter { it.isNotBlank() }.map { app.xuezhang.data.NoteSection("", emptyList(), it.trim()) } }
     }
-    val pages = remember(sections.size, l.mnemonics.size, l.segments.count { it.exam }) {
+    val chapters = remember(sections, l.mnemonics, l.segments) {
         buildList {
-            add(BookPage.Cover); if (sections.size > 1) add(BookPage.Toc)
-            sections.indices.forEach { add(BookPage.Sec(it)) }
-            if (l.mnemonics.isNotEmpty()) add(BookPage.Mnemonics)
-            if (l.segments.any { it.exam }) add(BookPage.Exams)
+            sections.forEachIndexed { i, s ->
+                val items = mutableListOf<Placed>()
+                val title = s.title.ifBlank { "第 ${i + 1} 节" }
+                items.add(Placed(Piece.Head(title)))
+                items.add(Placed(Piece.Pic(i)))
+                bodyPieces(s.body, 0f, items)
+                val exams = l.segments.filter { it.exam && (s.pages.isEmpty() || it.page in s.pages) }.take(if (s.pages.isEmpty()) 0 else 3)
+                exams.forEach { e -> items.add(Placed(Piece.Exam(null), 12f, keep = true)); bodyPieces(e.voice, 4f, items) }
+                add(Chapter(title, items, i, s.pages.firstOrNull(), "第 ${i + 1} 节"))
+            }
+            if (l.mnemonics.isNotEmpty()) {
+                val items = mutableListOf(Placed(Piece.Head("助　记")))
+                l.mnemonics.forEachIndexed { k, m -> items.add(Placed(Piece.Label(m.title), if (k > 0) 14f else 0f, keep = true)); bodyPieces(m.body, 4f, items) }
+                add(Chapter("助　记", items, label = "助记"))
+            }
+            if (l.segments.any { it.exam }) {
+                val items = mutableListOf(Placed(Piece.Head("课上标记的考点")))
+                l.segments.filter { it.exam }.forEachIndexed { k, s ->
+                    items.add(Placed(Piece.Exam(Live.fmt(s.startMs) + if (s.page > 0) " · 课件第 ${s.page} 页" else ""), if (k > 0) 14f else 0f, keep = true))
+                    bodyPieces(s.voice, 4f, items)
+                }
+                add(Chapter("课上标记的考点", items, label = "考点"))
+            }
+        }
+    }
+    // 量好的块高度（每章一组）。null = 还没量。
+    var measured by remember(chapters) { mutableStateOf<List<List<ReaderPaging.Block>>?>(null) }
+    var pageHpx by remember { mutableStateOf(0f to 0f) }
+    val pages = remember(chapters, measured, pageHpx) {
+        buildList {
+            add(BookPage.Cover); if (chapters.size > 1) add(BookPage.Toc)
+            chapters.forEachIndexed { ci, ch ->
+                val m = measured?.getOrNull(ci)
+                if (m == null || pageHpx.first <= 0f) add(BookPage.Part(ci, 0, 1, null))
+                else {
+                    val split = ReaderPaging.paginate(m, pageHpx.first, pageHpx.second)
+                    split.forEachIndexed { k, sl -> add(BookPage.Part(ci, k, split.size, sl)) }
+                }
+            }
             add(BookPage.End)
         }
     }
+    val firstOf: (Int) -> Int = { ci -> pages.indexOfFirst { it is BookPage.Part && it.ch == ci && it.part == 0 }.coerceAtLeast(0) }
     val curl = rememberPageCurlState(initialCurrent = startPage)
     val scope = rememberCoroutineScope()
     val config = rememberPageCurlConfig(
@@ -143,106 +226,202 @@ fun BookScreen(id: String, startPage: Int = 0) {
     )
     fun jump(p: Int) = scope.launch { curl.snapTo(p.coerceIn(0, pages.size - 1)) }
     val cur = curl.current.coerceIn(0, pages.size - 1)
-    val secOf: (Int) -> Int = { p -> (pages.getOrNull(p) as? BookPage.Sec)?.i ?: -1 }
+    // 重新分页（旋转/字号变化/首次量完）后保持在同一章的相近位置
+    var anchor by remember { mutableStateOf<BookPage?>(null) }
+    LaunchedEffect(pages) {
+        val a = anchor
+        if (a is BookPage.Part) {
+            val parts = pages.count { it is BookPage.Part && it.ch == a.ch }
+            val target = if (a.slices == null) firstOf(a.ch) + startPart.coerceIn(0, parts - 1)
+                else ReaderPaging.remap(a.ch, a.part, a.parts, firstOf(a.ch), parts)
+            if (target != curl.current) curl.snapTo(target.coerceIn(0, pages.size - 1))
+        } else if (a == BookPage.End && curl.current != pages.size - 1) curl.snapTo(pages.size - 1)
+    }
+    LaunchedEffect(cur, pages) { anchor = pages.getOrNull(cur) }
     val navTitle = (course?.name?.takeIf { it.length <= 6 }?.let { "$it·" } ?: "") + l.title.removePrefix(course?.name.orEmpty()).trim(' ', '·', '-', '：', ':').ifBlank { l.title }
+    val onMathFor: (String) -> ((String) -> Unit) = { ctx -> { tex -> Nav.sheet.value = Sheet.Formula(tex, ctx) } }
 
     Box(Modifier.fillMaxSize().background(NT.Brushes.Background).dotGrid()) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars)) {
-            // 顶栏：返回 + 衬线标题
+            // 顶栏：返回 + 衬线标题（长标题两行、字号略小，不再「…」截断）
             Box(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 16.dp)) {
                 Box(Modifier.align(Alignment.CenterStart).size(42.dp).shadow(6.dp, Capsule(), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
                     .clip(Capsule()).background(Color.White.copy(alpha = 0.92f)).clickable { Nav.pop() }, contentAlignment = Alignment.Center) { Icon("back", Color(0xFF1A1A1A), 20.dp, 2.2f) }
-                BasicText(navTitle, Modifier.align(Alignment.Center).padding(horizontal = 56.dp), style = NT.Type.ReaderNav.copy(fontSize = 19.sp, textAlign = TextAlign.Center),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val long = ReaderTitle.isLong(navTitle)
+                BasicText(navTitle, Modifier.align(Alignment.Center).padding(start = 56.dp, end = 12.dp),
+                    style = NT.Type.ReaderNav.copy(fontSize = if (long) 15.5.sp else 19.sp, lineHeight = if (long) 20.sp else 24.sp, textAlign = TextAlign.Center),
+                    maxLines = if (long) 2 else 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(10.dp))
             // 摊开的精装书
             OpenBook(hc, Modifier.fillMaxWidth().weight(1f)) {
-                PageCurl(count = pages.size, state = curl, config = config, modifier = Modifier.fillMaxSize()) { p ->
-                    PaperPage(p, pages.size) {
-                        when (val pg = pages[p]) {
-                            BookPage.Cover -> CoverLeaf(l, course, hc)
-                            BookPage.Toc -> PageScroll {
-                                ChapterHead("目　录")
-                                sections.forEachIndexed { i, s ->
-                                    Row(Modifier.fillMaxWidth().clickable { jump(pages.indexOf(BookPage.Sec(i))) }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        BasicText(s.title.ifBlank { "第 ${i + 1} 节" }, Modifier.weight(1f), style = T.Label.copy(color = Ink, fontFamily = Serif, fontSize = 16.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        BasicText("${pages.indexOf(BookPage.Sec(i)) + 1}", style = T.Sub.copy(color = NT.Colors.Reader.Caption))
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val dens = LocalDensity.current
+                    val textW = maxWidth - PagePadStart - PagePadEnd
+                    val firstH = maxHeight - PagePadTop - PagePadBottom - FooterH - 4.dp
+                    val hp = with(dens) { firstH.toPx() to (firstH - ContPad).toPx() }
+                    if (hp != pageHpx) SideEffect { pageHpx = hp }
+                    // 隐形量高：每块按页宽排版一次
+                    PieceMeasurer(chapters, textW, l, course) { res -> if (res != measured) measured = res }
+                    PageCurl(count = pages.size, state = curl, config = config, modifier = Modifier.fillMaxSize()) { p ->
+                        PaperPage(p, pages.size) {
+                            when (val pg = pages[p]) {
+                                BookPage.Cover -> CoverLeaf(l, course, hc)
+                                BookPage.Toc -> PageScroll {
+                                    ChapterHead("目　录")
+                                    chapters.forEachIndexed { i, ch ->
+                                        val parts = pages.count { it is BookPage.Part && it.ch == i }
+                                        Row(Modifier.fillMaxWidth().clickable { jump(firstOf(i)) }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            BasicText(ch.title, Modifier.weight(1f), style = T.Label.copy(color = Ink, fontFamily = Serif, fontSize = 16.sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            BasicText("${firstOf(i) + 1}" + if (parts > 1) "–${firstOf(i) + parts}" else "", style = T.Sub.copy(color = NT.Colors.Reader.Caption))
+                                        }
+                                        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Orn.copy(alpha = 0.5f)))
                                     }
-                                    Box(Modifier.fillMaxWidth().height(0.6.dp).background(Orn.copy(alpha = 0.5f)))
                                 }
-                            }
-                            is BookPage.Sec -> PageScroll {
-                                val s = sections[pg.i]
-                                ChapterHead(s.title.ifBlank { "第 ${pg.i + 1} 节" })
-                                if (s.frame.isNotBlank()) { FrameImage(l, pg.i, s); Spacer(Modifier.height(14.dp)) }
-                                else ReaderSlide(course, s.pages)
-                                CompositionLocalProvider(LocalPaperStyle provides true) {
-                                    NoteBody(s.body, onMath = { Nav.sheet.value = Sheet.Formula(it, s.body) }, style = ReaderBody)
-                                }
-                                val exams = l.segments.filter { it.exam && (s.pages.isEmpty() || it.page in s.pages) }.take(if (s.pages.isEmpty()) 0 else 3)
-                                exams.forEach { e ->
-                                    Spacer(Modifier.height(12.dp))
-                                    ExamTag()
-                                    Spacer(Modifier.height(4.dp))
-                                    RichText(e.voice, style = ReaderBody, onMath = { Nav.sheet.value = Sheet.Formula(it, e.voice) })
-                                }
-                            }
-                            BookPage.Mnemonics -> PageScroll {
-                                ChapterHead("助　记")
-                                l.mnemonics.forEach { m ->
-                                    BasicText(m.title, style = T.Item.copy(color = NT.Colors.Reader.ExamText)); Spacer(Modifier.height(4.dp))
-                                    RichText(m.body, style = ReaderBody); Spacer(Modifier.height(14.dp))
-                                }
-                            }
-                            BookPage.Exams -> PageScroll {
-                                ChapterHead("课上标记的考点")
-                                l.segments.filter { it.exam }.forEach { s ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        ExamTag(); Spacer(Modifier.width(8.dp))
-                                        BasicText(Live.fmt(s.startMs) + if (s.page > 0) " · 课件第 ${s.page} 页" else "", style = T.Cap.copy(color = NT.Colors.Reader.Caption))
+                                is BookPage.Part -> {
+                                    val ch = chapters[pg.ch]
+                                    val blocks = measured?.getOrNull(pg.ch)
+                                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = PagePadStart, end = PagePadEnd, top = PagePadTop, bottom = PagePadBottom)) {
+                                        if (pg.part > 0) RunningHeader(ch.title, pg.part, pg.parts)
+                                        val slices = pg.slices
+                                        if (slices == null || blocks == null) {
+                                            // 还没量完（只会出现一帧）：先按原样整章可滚动显示
+                                            ch.items.forEach { PieceView(it.p, l, course, onMathFor) }
+                                        } else slices.forEachIndexed { k, s ->
+                                            val b = blocks[s.block]
+                                            if (k > 0 && s.from == 0f && b.gapBefore > 0f) Spacer(Modifier.height(with(dens) { b.gapBefore.toDp() }))
+                                            SliceView(s, s.from == 0f && s.to >= b.height - 0.5f, with(dens) { (if (pg.part > 0) hp.second else hp.first).toDp() }, Modifier) { PieceView(ch.items[s.block].p, l, course, onMathFor) }
+                                        }
                                     }
-                                    Spacer(Modifier.height(4.dp))
-                                    RichText(s.voice, style = ReaderBody, onMath = { Nav.sheet.value = Sheet.Formula(it, s.voice) })
-                                    Spacer(Modifier.height(14.dp))
                                 }
-                            }
-                            BookPage.End -> Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                Ornament(true)
-                                Spacer(Modifier.height(10.dp))
-                                BasicText("读完啦", style = T.Large.copy(fontSize = 30.sp, color = Ink))
-                                Spacer(Modifier.height(10.dp))
-                                Ornament(false)
-                                Spacer(Modifier.height(10.dp))
-                                BasicText("${l.cards.size} 张复习卡等你来过一遍", style = T.Sub.copy(color = NT.Colors.Reader.Caption))
-                                Spacer(Modifier.height(22.dp))
-                                Btn("开始复习", { Nav.push(Route.Review(id)) }, Modifier.fillMaxWidth(), icon = "layers", tint = hc.color)
-                                Spacer(Modifier.height(10.dp))
-                                Btn("完整笔记 / 概念图 / 实录", { Nav.replace(Route.Note(id)) }, Modifier.fillMaxWidth(), icon = "filetext")
+                                BookPage.End -> Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                    Ornament(true)
+                                    Spacer(Modifier.height(10.dp))
+                                    BasicText("读完啦", style = T.Large.copy(fontSize = 30.sp, color = Ink))
+                                    Spacer(Modifier.height(10.dp))
+                                    Ornament(false)
+                                    Spacer(Modifier.height(10.dp))
+                                    BasicText("${l.cards.size} 张复习卡等你来过一遍", style = T.Sub.copy(color = NT.Colors.Reader.Caption))
+                                    Spacer(Modifier.height(22.dp))
+                                    Btn("开始复习", { Nav.push(Route.Review(id)) }, Modifier.fillMaxWidth(), icon = "layers", tint = hc.color)
+                                    Spacer(Modifier.height(10.dp))
+                                    Btn("完整笔记 / 概念图 / 实录", { Nav.replace(Route.Note(id)) }, Modifier.fillMaxWidth(), icon = "filetext")
+                                }
                             }
                         }
                     }
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Scrubber(cur, pages.size, label = { p ->
-                val si = secOf(p)
-                when {
-                    si >= 0 -> "第 ${si + 1} 节 · ${p + 1}/${pages.size}"
-                    pages.getOrNull(p) == BookPage.Cover -> "封面 · ${p + 1}/${pages.size}"
-                    pages.getOrNull(p) == BookPage.Toc -> "目录 · ${p + 1}/${pages.size}"
-                    else -> "${p + 1}/${pages.size}"
-                }
-            }, thumb = { p -> sections.getOrNull(secOf(p))?.pages?.firstOrNull() }, course = course) { jump(it) }
+            val majors = remember(pages) { pages.indices.filter { pages[it] !is BookPage.Part || (pages[it] as BookPage.Part).part == 0 }.toSet() }
+            Scrubber(cur, pages.size, majors, label = { p -> pageLabel(pages, chapters, p) },
+                thumb = { p -> (pages.getOrNull(p) as? BookPage.Part)?.let { chapters[it.ch].thumb } }, course = course) { jump(it) }
             // 工具栏
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 36.dp), verticalAlignment = Alignment.CenterVertically) {
-                ToolItem("list", "目录") { jump(if (sections.size > 1) 1 else 0) }
+                ToolItem("list", "目录") { jump(if (chapters.size > 1) 1 else 0) }
                 Spacer(Modifier.weight(1f))
                 ToolItem("layers", "复习卡") { Nav.push(Route.Review(id)) }
                 Spacer(Modifier.weight(1f))
                 ToolItem("hexset", "导图") { NoteSeg.next = 2; Nav.push(Route.Note(id)) }
             }
         }
+    }
+}
+
+private fun pageLabel(pages: List<BookPage>, chapters: List<Chapter>, p: Int): String {
+    val n = "${p + 1}/${pages.size}"
+    return when (val pg = pages.getOrNull(p)) {
+        BookPage.Cover -> "封面 · $n"
+        BookPage.Toc -> "目录 · $n"
+        is BookPage.Part -> chapters[pg.ch].label.ifBlank { chapters[pg.ch].title.take(4) } + (if (pg.parts > 1) "（${pg.part + 1}/${pg.parts}）" else "") + " · $n"
+        else -> n
+    }
+}
+
+/** 顶栏长标题判断（纯函数，可测）。 */
+object ReaderTitle { fun isLong(s: String) = s.length > 11 }
+
+private val PagePadStart = 26.dp
+private val PagePadEnd = 22.dp
+private val PagePadTop = 26.dp
+private val PagePadBottom = 10.dp
+private val FooterH = 24.dp
+
+/** 续页页眉：「6. 空载电流与励磁阻抗（续）」+ 细线。高度固定 = ContPad。 */
+@Composable
+private fun RunningHeader(title: String, part: Int, parts: Int) {
+    Column(Modifier.fillMaxWidth().height(ContPad)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicText("$title（续）", Modifier.weight(1f), style = T.Cap.copy(fontFamily = Serif, fontSize = 12.5.sp, color = NT.Colors.Reader.Caption), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText("${part + 1}/$parts", style = T.Cap.copy(fontSize = 11.sp, color = NT.Colors.Reader.Caption))
+        }
+        Spacer(Modifier.height(5.dp))
+        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Orn.copy(alpha = 0.6f)))
+    }
+}
+
+/** 一块内容在书页上的样子（量高和真正显示用同一个组合函数，高度才对得上）。 */
+@Composable
+private fun PieceView(p: Piece, l: Lecture, course: Course?, onMathFor: (String) -> ((String) -> Unit)) {
+    CompositionLocalProvider(LocalPaperStyle provides true) {
+        when (p) {
+            is Piece.Head -> ChapterHead(p.title)
+            is Piece.Pic -> {
+                val s = l.sections.getOrNull(p.sec)
+                if (s != null && s.frame.isNotBlank()) Column { FrameImage(l, p.sec, s); Spacer(Modifier.height(14.dp)) }
+                else if (s != null) ReaderSlide(course, s.pages)
+            }
+            is Piece.Para -> RichText(p.text, style = ReaderBody, onMath = onMathFor(p.ctx))
+            is Piece.Formula -> MathBlock(p.tex, ReaderBody, onMathFor(p.ctx))
+            is Piece.Ui -> UiBlockView(p.block)
+            is Piece.Exam -> Row(verticalAlignment = Alignment.CenterVertically) {
+                ExamTag()
+                if (p.caption != null) { Spacer(Modifier.width(8.dp)); BasicText(p.caption, style = T.Cap.copy(color = NT.Colors.Reader.Caption)) }
+            }
+            is Piece.Label -> BasicText(p.text, style = T.Item.copy(color = NT.Colors.Reader.ExamText))
+        }
+    }
+}
+
+/** 按 Slice 显示：整块 / 只露出 [from,to) 那几行 / 缩小 / 页内滚动。 */
+@Composable
+private fun SliceView(s: ReaderPaging.Slice, full: Boolean, scrollH: androidx.compose.ui.unit.Dp, modifier: Modifier, content: @Composable () -> Unit) {
+    when {
+        s.scroll -> Box(modifier.fillMaxWidth().height(scrollH).verticalScroll(rememberScrollState())) { content() }
+        s.scale < 1f -> Box(modifier.fillMaxWidth().clipToBounds().layout { m, c ->
+            val pl = m.measure(c.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+            layout(pl.width, (pl.height * s.scale).roundToInt()) { pl.placeWithLayer(0, 0) { scaleX = s.scale; scaleY = s.scale; transformOrigin = TransformOrigin(0.5f, 0f) } }
+        }) { content() }
+        !full -> Box(modifier.fillMaxWidth().clipToBounds().layout { m, c ->
+            val pl = m.measure(c.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+            val top = s.from.roundToInt()
+            val h = (minOf(s.to, pl.height.toFloat()) - s.from).roundToInt().coerceAtLeast(0)
+            layout(pl.width, h) { pl.place(0, -top) }
+        }) { content() }
+        else -> Box(modifier) { content() }
+    }
+}
+
+/** 隐形量高：每章每块在页宽下组合+测量一次，得出高度与段落行底 y，交给 ReaderPaging。 */
+@Composable
+private fun PieceMeasurer(chapters: List<Chapter>, width: androidx.compose.ui.unit.Dp, l: Lecture, course: Course?, onResult: (List<List<ReaderPaging.Block>>) -> Unit) {
+    val sinks = remember(chapters) { HashMap<String, LineSink>() }
+    val noMath: (String) -> ((String) -> Unit) = { { } }
+    SubcomposeLayout(Modifier.size(0.dp)) { _ ->
+        val w = width.roundToPx().coerceAtLeast(1)
+        val res = chapters.mapIndexed { ci, ch ->
+            ch.items.mapIndexed { pi, it ->
+                val key = "$ci/$pi"
+                val sink = sinks.getOrPut(key) { LineSink() }
+                val ms = subcompose(key) {
+                    CompositionLocalProvider(LocalMeasuring provides true, LocalLineSink provides sink) { Box { PieceView(it.p, l, course, noMath) } }
+                }.map { m -> m.measure(Constraints(maxWidth = w)) }
+                val h = ms.maxOfOrNull { m -> m.height }?.toFloat() ?: 0f
+                ReaderPaging.Block(h, if (it.p is Piece.Para) sink.lines.filter { y -> y <= h + 1f } else emptyList(), it.gapDp * density, it.keep)
+            }
+        }
+        onResult(res)
+        layout(0, 0) {}
     }
 }
 
@@ -315,7 +494,9 @@ private fun PaperPage(p: Int, total: Int, content: @Composable () -> Unit) {
     }) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).fillMaxWidth()) { content() }
-            if (p > 0) BasicText("— ${p + 1} —", Modifier.fillMaxWidth().padding(bottom = 8.dp), style = T.Cap.copy(fontSize = 11.sp, color = NT.Colors.Reader.Caption, textAlign = TextAlign.Center))
+            Box(Modifier.fillMaxWidth().height(FooterH), contentAlignment = Alignment.TopCenter) {
+                if (p > 0) BasicText("— ${p + 1} —", Modifier.fillMaxWidth(), style = T.Cap.copy(fontSize = 11.sp, color = NT.Colors.Reader.Caption, textAlign = TextAlign.Center))
+            }
         }
     }
 }
@@ -361,12 +542,13 @@ private fun ReaderSlide(c: Course?, pages: List<Int>) {
     if (path.isBlank() || pages.isEmpty() || !File(path).exists()) return
     val total = remember(path) { SlideImages.pageCount(path) }
     val page = pages.firstOrNull { total == 0 || it <= total } ?: return
-    val img by produceState<ImageBitmap?>(null, path, page) { value = withContext(Dispatchers.IO) { runCatching { SlideImages.render(path, page, 1400)?.asImageBitmap() }.getOrNull() } }
+    val measuring = LocalMeasuring.current
+    val img by produceState<ImageBitmap?>(null, path, page) { if (!measuring) value = withContext(Dispatchers.IO) { runCatching { SlideImages.render(path, page, 1400)?.asImageBitmap() }.getOrNull() } }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth(0.94f).shadow(5.dp, RoundedCornerShape(NT.Dim.Reader.SlideR), ambientColor = Color(0x44000000), spotColor = Color(0x44000000))
             .background(Color.White).padding(NT.Dim.Reader.SlideFrame).aspectRatio(16f / 10.5f)
             .clickable { SlideViewer.open.value = Triple(path, page, total) }) {
-            img?.let { Image(it, "课件第 $page 页", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } ?: Shimmer(Modifier.fillMaxSize())
+            img?.let { Image(it, "课件第 $page 页", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } ?: if (measuring) Box(Modifier.fillMaxSize()) else Shimmer(Modifier.fillMaxSize())
         }
         Spacer(Modifier.height(NT.Dim.Reader.CaptionGap))
         BasicText("课件第 $page 页" + if (pages.size > 1) " 等 ${pages.size} 页" else "", style = T.Cap.copy(fontSize = 13.sp, color = NT.Colors.Reader.Caption))
@@ -396,7 +578,7 @@ private fun CoverLeaf(l: Lecture, course: Course?, hc: app.xuezhang.engine.HardC
 
 /** 翻书进度条：刻度轨道 + 圆钮；拖动时气泡显示课件缩略图与「第 N 节 · n/N」，松手跳页。 */
 @Composable
-private fun Scrubber(cur: Int, count: Int, label: (Int) -> String, thumb: (Int) -> Int?, course: Course?, onJump: (Int) -> Unit) {
+private fun Scrubber(cur: Int, count: Int, majors: Set<Int>, label: (Int) -> String, thumb: (Int) -> Int?, course: Course?, onJump: (Int) -> Unit) {
     var dragX by remember { mutableStateOf<Float?>(null) }
     var w by remember { mutableFloatStateOf(1f) }
     val shown = dragX?.let { ReaderMath.pageAt(it, w, count) } ?: cur
@@ -435,11 +617,14 @@ private fun Scrubber(cur: Int, count: Int, label: (Int) -> String, thumb: (Int) 
                     onDragCancel = { dragX = null })
             }) {
             Canvas(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-                val step = d.TickStep.toPx(); var x = 0f; var i = 0
-                while (x <= size.width) {
-                    val th = (if (i % 5 == 0) d.TickMajorH else d.TickH).toPx()
-                    drawLine(NT.Colors.Reader.Tick, Offset(x, (size.height - th) / 2), Offset(x, (size.height + th) / 2), 1.dp.toPx())
-                    x += step; i++
+                // v0.0.7.8 刻度 = 真实页：每页一根，章首页（封面/目录/每节第一页）为长刻度；页太多时只画章首
+                val n = count.coerceAtLeast(1)
+                for (i in 0 until n) {
+                    val major = i in majors
+                    if (n > 64 && !major) continue
+                    val x = if (n <= 1) 0f else size.width * i / (n - 1)
+                    val th = (if (major) d.TickMajorH else d.TickH).toPx()
+                    drawLine(NT.Colors.Reader.Tick, Offset(x, (size.height - th) / 2), Offset(x, (size.height + th) / 2), if (major) 1.4.dp.toPx() else 1.dp.toPx())
                 }
             }
         }

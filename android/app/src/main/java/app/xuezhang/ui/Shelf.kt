@@ -85,11 +85,12 @@ object BookLook {
 /** 录播课这一节对应的视频原画面；B 站来源点按可换一张。 */
 @Composable
 fun FrameImage(l: Lecture, secIdx: Int, s: app.xuezhang.data.NoteSection) {
-    val img by produceState<ImageBitmap?>(null, s.frame) { value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(s.frame)?.asImageBitmap() }.getOrNull() } }
+    val measuring = LocalMeasuring.current
+    val img by produceState<ImageBitmap?>(null, s.frame) { if (!measuring) value = withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(s.frame)?.asImageBitmap() }.getOrNull() } }
     val bili = app.xuezhang.engine.Bili.srcBv(l.source) != null && app.xuezhang.engine.Bili.srcCid(l.source) != null
     Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Color(0xFF1D1D1F))
         .then(if (bili) Modifier.clickable { Nav.sheet.value = Sheet.Frames(l.id, secIdx) } else Modifier)) {
-        img?.let { Image(it, "视频画面", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } ?: Shimmer(Modifier.fillMaxSize())
+        img?.let { Image(it, "视频画面", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } ?: if (measuring) Box(Modifier.fillMaxSize()) else Shimmer(Modifier.fillMaxSize())
         if (s.atMs >= 0) BasicText("▶ " + Live.fmt(s.atMs), Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xCC1D1D1F))
             .padding(horizontal = 7.dp, vertical = 2.dp), style = T.Cap.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp))
         if (bili) BasicText("换一张", Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(Capsule()).background(Color(0x991D1D1F))

@@ -214,21 +214,34 @@ object Live {
         if (discardPending) return
         val raw = Api.transcribe(f, c.hotwords.joinToString("，"))
         if (raw.isBlank() || raw.length < 2) return
+        // v0.0.7.8 识别优化插件：先做确定性清洗（语气词、口吃重复、口误更正、闲聊），再交给大模型精炼
+        val cleaned = app.xuezhang.engine.plugin.SkillRegistry.clean(raw)
+        val refineOn = cleaned != null
         val ctxText = segments.takeLast(3).joinToString("\n") { it.voice }
         val slides = c.slides.joinToString("\n") { "P.${it.page} ${it.title} ${it.formulas.joinToString(" ")}" }.take(2500)
         val user = buildString {
             append("课程：${c.name}\n热词：${c.hotwords.joinToString("、")}\n")
             if (slides.isNotBlank()) append("PPT 页：\n$slides\n当前大约在 P.${currentPage.intValue}\n")
             if (ctxText.isNotBlank()) append("前文（已整理）：\n$ctxText\n")
-            append("\n本段语音识别原文：\n$raw")
+            if (cleaned != null) {
+                append("\n本段语音识别原文（已经过识别优化插件确定性清洗：删语气词 ${cleaned.fillers} 处、合并重复 ${cleaned.repeats} 处、口误更正 ${cleaned.corrections} 处）：\n${cleaned.text.ifBlank { raw }}")
+                if (cleaned.exam.isNotEmpty()) append("\n老师的考点信号：" + cleaned.exam.joinToString(" / "))
+            } else append("\n本段语音识别原文：\n$raw")
         }
+        if (cleaned != null && cleaned.text.isBlank()) return // 整段都是闲聊/语气词
         val o = Api.chatJson(Prompts.get("segment"), user)
         val page = o.optInt("page", 0).let { if (it > 0) it else currentPage.intValue }
         if (page > 0) currentPage.intValue = page
         val fills = o.optInt("fills", 0)
         val seg = Segment(startMs = start, page = page, raw = raw, voice = o.optString("voice", raw),
-            senior = o.optString("senior").let { if (Prompts.isSkip(it)) "" else it }, fillers = o.optInt("fillers"), repeats = o.optInt("repeats"),
-            exam = o.optBoolean("exam") || markNext, offTopic = Prompts.offTopic(o) && !(o.optBoolean("exam") || markNext))
+            senior = o.optString("senior").let { if (Prompts.isSkip(it)) "" else it }.let { sen ->
+                // 识别优化：学长模式显示「精炼稿 + 要点」
+                if (!refineOn || sen.isBlank()) sen else {
+                    val pts = o.optJSONArray("points")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf { p -> p.isNotBlank() } } }.orEmpty()
+                    if (pts.isEmpty()) sen else sen + "\n" + pts.joinToString("\n") { "· $it" }
+                }
+            }, fillers = o.optInt("fillers") + (cleaned?.fillers ?: 0), repeats = o.optInt("repeats") + (cleaned?.repeats ?: 0),
+            exam = o.optBoolean("exam") || markNext || (cleaned?.exam?.isNotEmpty() == true), offTopic = Prompts.offTopic(o) && !(o.optBoolean("exam") || markNext))
         markNext = false
         segments.add(seg); persist()
         when {
@@ -271,7 +284,10 @@ object Live {
             for (s in 1..2) { delay(400); genStep.intValue = s }
             val slideIdx = c?.slides?.joinToString("\n") { "P.${it.page} ${it.title}" }?.take(3000).orEmpty()
             val transcript = l.segments.filterNot { it.offTopic }.joinToString("\n") { s ->
-                "[${fmt(s.startMs)}${if (s.page > 0) " P.${s.page}" else ""}${if (s.exam) " ★考点" else ""}] ${s.voice}"
+                val refined = app.xuezhang.engine.plugin.SkillRegistry.refine.value != null
+                "[${fmt(s.startMs)}${if (s.page > 0) " P.${s.page}" else ""}${if (s.exam) " ★考点" else ""}] " +
+                    // v0.0.7.8 识别优化插件：笔记输入用清洗后的原话 + 精炼要点，减少啰嗦
+                    (if (refined) (app.xuezhang.engine.plugin.SkillRegistry.clean(s.voice)?.text ?: s.voice) + (if (s.senior.isNotBlank()) "｜要点：" + s.senior.replace("\n", " ") else "") else s.voice)
             }.takeLast(24000)
             genStep.intValue = 3
             val depth = genDepth ?: Store.settings.value.noteDepth

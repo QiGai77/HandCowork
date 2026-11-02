@@ -364,6 +364,10 @@ fun SettingsTab() {
                     onClick = { Nav.push(Route.Accounts) }
                 )
                 MeLine()
+                // v0.0.7.8 插件：主题、封面、识别优化技能、服务商…
+                MeRow("puzzle", "插件", value = app.xuezhang.engine.plugin.Plugins.enabled().joinToString(" · ") { it.m.name }.ifBlank { "主题 · 技能 · 服务商" },
+                    onClick = { Nav.push(Route.Plugins()) })
+                MeLine()
                 MeRow("monitor", "显示与交互", expanded = dispOpen, onClick = { dispOpen = !dispOpen })
                 Fold(dispOpen) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -63,6 +63,10 @@ sealed interface Route {
     data object Advanced : Route
     data object Accounts : Route
     data class ImageStudio(val target: String = "") : Route
+    /** v0.0.7.8 插件：tab 0 已安装 / 1 插件市场 */
+    data class Plugins(val tab: Int = 0) : Route
+    data class PluginDetail(val id: String, val market: Boolean = false) : Route
+    data object Providers : Route
 }
 
 object Nav {
@@ -105,7 +109,8 @@ fun GlassScaffold(content: @Composable BoxScope.() -> Unit, overlay: @Composable
 @Composable
 fun App() {
     val sysDark = androidx.compose.foundation.isSystemInDarkTheme()
-    ThemeState.dark = when (app.xuezhang.data.Store.settings.value.theme) { 1 -> false; 2 -> true; else -> sysDark }
+    val themePlugin = app.xuezhang.engine.plugin.ThemeRegistry.active.value
+    ThemeState.dark = if (themePlugin?.spec?.forceLight == true) false else when (app.xuezhang.data.Store.settings.value.theme) { 1 -> false; 2 -> true; else -> sysDark }
     val top = Nav.stack.last()
     BackHandler(enabled = Nav.sheet.value != null || Nav.stack.size > 1 || SlideViewer.open.value != null) {
         when {
@@ -151,6 +156,9 @@ fun App() {
                 Route.Advanced -> AdvancedScreen()
                 Route.Accounts -> AccountsScreen()
                 is Route.ImageStudio -> ImageStudioScreen(r.target)
+                is Route.Plugins -> PluginsScreen(r.tab)
+                is Route.PluginDetail -> PluginDetailScreen(r.id, r.market)
+                Route.Providers -> ProvidersScreen()
             }
         }
         }
@@ -159,6 +167,7 @@ fun App() {
         androidx.compose.runtime.CompositionLocalProvider(LocalBg provides appB) { SplashHost() }
         androidx.compose.runtime.CompositionLocalProvider(LocalBg provides appB) { OnboardingHost() }
         IslandHost()
+        PluginSplashHost()
     }
 }
 
@@ -190,8 +199,10 @@ fun TabsHost() {
                 ) {
                     TABS.forEachIndexed { i, (label, ic) ->
                         LiquidBottomTab({ Nav.tab.intValue = i }) {
-                            Icon(ic, androidx.compose.ui.graphics.Color(0xFF1D1D1F), 24.dp)
-                            BasicText(label, style = TextStyle(androidx.compose.ui.graphics.Color(0xFF1D1D1F), 10.5.sp, FontWeight.SemiBold))
+                            // v0.0.7.8 主题插件「墨色导航」：选中项用主题色（墨韵江南 = 黛青），字用主题衬线体
+                            val col = if (ThemeLook.inkNav) (if (Nav.tab.intValue == i) ThemeLook.color("navActive") ?: C.Accent else C.Ink) else androidx.compose.ui.graphics.Color(0xFF1D1D1F)
+                            Icon(ic, col, 24.dp)
+                            BasicText(label, style = TextStyle(col, 10.5.sp, FontWeight.SemiBold, fontFamily = if (ThemeLook.inkNav) Serif else null))
                         }
                     }
                 }

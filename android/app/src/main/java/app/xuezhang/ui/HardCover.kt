@@ -114,6 +114,27 @@ fun DrawScope.drawFoilIcon(motif: String, topLeft: Offset, side: Float, strokeSc
 /** 竖版精装封面（3:4 板面）：预设图 + 烫金课程名 + 淡水印字。 */
 @Composable
 fun HardCover(hc: HardCovers.Hc, title: String?, modifier: Modifier = Modifier, glyph: String? = title?.let { HardCovers.watermark(it) }, showTitle: Boolean = true) {
+    // v0.0.7.8 封面包插件（如墨韵江南的线装书封面）：同一编号换成插件里的图，标题按插件给的题签位置排（可竖排）
+    val packCover = app.xuezhang.engine.plugin.CoverPackRegistry.cover(hc.index)
+    val packImg = remember(packCover, app.xuezhang.engine.plugin.Plugins.epoch.value) { app.xuezhang.engine.plugin.CoverPackRegistry.coverFile(hc.index)?.let { ThemeArt.bitmap(it, 900) } }
+    if (packCover != null && packImg != null) {
+        BoxWithConstraints(modifier.clipToBounds()) {
+            val w = maxWidth; val h = maxHeight
+            Image(packImg, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            if (showTitle && !title.isNullOrBlank() && h >= 84.dp) {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                val bw = w * packCover.w; val bh = h * packCover.h
+                val txt = if (packCover.vertical) title.take(8).toList().joinToString("\n") else title
+                val n = if (packCover.vertical) minOf(title.length, 8) else title.length
+                val fs = if (packCover.vertical) minOf(bw.value * 0.62f, bh.value / (n.coerceAtLeast(1) * 1.12f)) else minOf(bh.value * 0.42f, bw.value * 0.9f / n.coerceAtLeast(1))
+                Box(Modifier.offset(x = w * packCover.x, y = h * packCover.y).size(bw, bh), contentAlignment = Alignment.Center) {
+                    BasicText(txt, style = TextStyle(fontFamily = Serif, fontSize = with(density) { fs.dp.toSp() }, lineHeight = with(density) { (fs * 1.1f).dp.toSp() },
+                        color = packCover.titleColor?.let { Color(it) } ?: Color(0xFF2B2B2B), textAlign = TextAlign.Center), maxLines = if (packCover.vertical) 8 else 2, overflow = TextOverflow.Clip)
+                }
+            }
+        }
+        return
+    }
     BoxWithConstraints(modifier.clipToBounds()) {
         val w = maxWidth; val h = maxHeight
         Image(painterResource(hcCoverRes(hc)), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -175,7 +196,9 @@ private fun Watermark(glyph: String, sizeFrac: Float, cx: Float, baseline: Float
 /** 书脊：预设书脊图三段拉伸（上下烫金带保持比例，中段布面拉伸）+ 竖排烫金标题 + 日期。 */
 @Composable
 fun HcSpine(hc: HardCovers.Hc, title: String, sub: String, modifier: Modifier = Modifier, fill: Float = 1f) {
-    val img = ImageBitmap.imageResource(hcSpineRes(hc))
+    val packSpine = remember(hc.index, app.xuezhang.engine.plugin.Plugins.epoch.value) { app.xuezhang.engine.plugin.CoverPackRegistry.spineFile(hc.index)?.let { ThemeArt.bitmap(it, 800) } }
+    val img = packSpine ?: ImageBitmap.imageResource(hcSpineRes(hc))
+    val packed = packSpine != null
     BoxWithConstraints(modifier) {
         val h = maxHeight
         Canvas(Modifier.fillMaxSize()) {
@@ -192,7 +215,7 @@ fun HcSpine(hc: HardCovers.Hc, title: String, sub: String, modifier: Modifier = 
         }
         val maxChars = ((h.value - 44) / 14.5f).toInt().coerceAtLeast(2)
         BasicText(title.take(maxChars).toList().joinToString("\n"), Modifier.align(Alignment.TopCenter).padding(top = 19.dp),
-            style = NT.Type.Spine.copy(brush = Foil.text, textAlign = TextAlign.Center, lineHeight = androidx.compose.ui.unit.TextUnit(14.5f, androidx.compose.ui.unit.TextUnitType.Sp)))
+            style = NT.Type.Spine.copy(brush = if (packed) androidx.compose.ui.graphics.SolidColor(Color(0xFF2B2B2B)) else Foil.text, fontFamily = Serif, textAlign = TextAlign.Center, lineHeight = androidx.compose.ui.unit.TextUnit(14.5f, androidx.compose.ui.unit.TextUnitType.Sp)))
         if (sub.isNotBlank()) BasicText(sub, Modifier.align(Alignment.BottomCenter).padding(bottom = 15.dp),
             style = NT.Type.SpineDate.copy(fontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp), color = Color(0xFFEBD9A8).copy(alpha = 0.8f)))
     }

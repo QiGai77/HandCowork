@@ -385,6 +385,20 @@ fun ModelSheetContent(kind: Int) {
                 }
             }
         }
+        // v0.0.7.8 供应商兼容插件：任意 OpenAI 兼容 / Anthropic / Gemini / 中转
+        if (app.xuezhang.engine.plugin.ProviderRegistry.enabled.value) {
+            val cur = Api.customProvider()
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (cur != null) C.Blue.copy(alpha = 0.08f) else C.Fill)
+                .clickable { Nav.sheet.value = null; Nav.push(Route.Providers) }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon("puzzle", C.Blue, 18.dp, 2f); Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    BasicText("自定义服务商 / 中转", style = T.Label.copy(fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold))
+                    BasicText(cur?.let { "正在使用：${it.name} · ${it.style}" } ?: "供应商兼容插件 · 导入任意 OpenAI 兼容 / Claude / Gemini 接口", style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1)
+                }
+                Icon("chevr", C.Sec, 16.dp)
+            }
+        }
         if (kind == 0 && prov?.asrOk == false) BasicText("提示：这家的接口不一定兼容 /audio/transcriptions，语音识别建议用 SiliconFlow 或 OpenAI。",
             Modifier.padding(top = 8.dp), style = T.Cap.copy(color = C.HlOrange))
         // 账号登录 / API Key 切换（OpenAI ↔ ChatGPT 账号，Claude ↔ Claude 账号）

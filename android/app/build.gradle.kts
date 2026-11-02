@@ -83,6 +83,6 @@ dependencies {
 
 // 截图测试（Robolectric 原生渲染）只在 -Pshots=true 时跑：./gradlew testDebugUnitTest -Pshots=true --tests '*V0076ShotsTest*'
 tasks.withType<Test>().configureEach {
-    if (!project.hasProperty("shots")) { exclude("**/V0076ShotsTest*"); exclude("**/V0077ShotsTest*") }
+    if (!project.hasProperty("shots")) { exclude("**/V0076ShotsTest*"); exclude("**/V0077ShotsTest*"); exclude("**/V0078ShotsTest*") }
     (project.findProperty("testJava") as String?)?.let { executable = it }
 }

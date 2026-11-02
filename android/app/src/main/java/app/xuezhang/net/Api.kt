@@ -30,7 +30,11 @@ object Api {
     private object Providers0 { fun name(b: String) = runCatching { java.net.URI(b).host ?: b }.getOrDefault(b) }
 
     private fun transcribeRaw(wav: File, prompt: String): String {
-        val s = Store.settings.value
+        val s0 = Store.settings.value
+        // v0.0.7.8 供应商兼容：选中的自定义服务商声明了 asr 能力（OpenAI 兼容 /audio/transcriptions）就用它
+        val cp = customProvider(s0)?.takeIf { it.has("asr") && it.style == "openai" }
+        val s = if (cp != null) s0.copy(asrBase = cp.base() + cp.asrPath.removeSuffix("/audio/transcriptions"), asrKey = Auth.providerKeys[cp.id].orEmpty().ifBlank { "none" },
+            asrModel = cp.asrModel.ifBlank { s0.asrModel }) else s0
         if (s.asrKey.isBlank()) throw ApiException("请先在「我的」里填写语音识别 API Key")
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("model", s.asrModel)
@@ -47,12 +51,18 @@ object Api {
     }
 
     // ======================= 大模型：按服务商 / 登录方式分发 =======================
-    enum class Mode { OPENAI, CHATGPT, CLAUDE_KEY, CLAUDE_OAUTH }
+    enum class Mode { OPENAI, CHATGPT, CLAUDE_KEY, CLAUDE_OAUTH, CUSTOM }
+
+    /** v0.0.7.8 供应商兼容插件：选中的自定义服务商（插件停用或配置不存在时为 null，回到内置服务商）。 */
+    fun customProvider(s: app.xuezhang.data.Settings = Store.settings.value): app.xuezhang.engine.plugin.ProviderConfig? =
+        s.customProvider.takeIf { it.isNotBlank() && app.xuezhang.engine.plugin.ProviderRegistry.enabled.value }
+            ?.let { app.xuezhang.engine.plugin.ProviderRegistry.byId(it) }
     const val CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
     const val ANTHROPIC = "https://api.anthropic.com/v1"
     fun isAnthropic(base: String) = base.contains("anthropic.com")
 
     fun mode(s: app.xuezhang.data.Settings = Store.settings.value): Mode = when {
+        customProvider(s) != null -> Mode.CUSTOM
         s.llmAuth == "chatgpt" -> Mode.CHATGPT
         s.llmAuth == "claude" -> Mode.CLAUDE_OAUTH
         isAnthropic(s.llmBase) -> Mode.CLAUDE_KEY
@@ -63,6 +73,7 @@ object Api {
     fun llmReady(): Boolean = when (mode()) {
         Mode.CHATGPT -> Auth.chatgpt.value != null
         Mode.CLAUDE_OAUTH -> Auth.claude.value != null
+        Mode.CUSTOM -> customProvider()?.let { c -> Auth.providerKeys[c.id].orEmpty().isNotBlank() || isLocal(c.baseUrl) } == true
         else -> Store.settings.value.llmKey.isNotBlank()
     }
     private fun requireLlm() { if (!llmReady()) throw ApiException("请先在「我的」里配置大模型（填写 API Key 或登录账号）") }
@@ -83,10 +94,52 @@ object Api {
     private fun genRaw(system: String, parts: List<Part>, model: String, json: Boolean, temperature: Double, onDelta: ((String) -> Unit)?): String {
         return when (mode()) {
             Mode.OPENAI -> openaiChat(system, parts, model, json, temperature, onDelta)
+            Mode.CUSTOM -> customChat(customProvider()!!, system, parts, model, json, temperature, onDelta)
             Mode.CHATGPT -> codex(system + if (json) "\n\n只输出一个 JSON，不要任何解释或代码块。" else "", parts, model, onDelta, null).first
             Mode.CLAUDE_KEY, Mode.CLAUDE_OAUTH -> claude(system + if (json) "\n\n只输出一个 JSON，不要任何解释或代码块。" else "", parts, model, temperature, onDelta)
         }
     }
+
+    fun isLocal(base: String) = runCatching { java.net.URI(base).host }.getOrNull().let { it == "localhost" || it == "127.0.0.1" || it?.startsWith("192.168.") == true || it?.startsWith("10.") == true }
+
+    /** 自定义服务商的 OkHttp（可选 HTTP 代理）。 */
+    private fun clientFor(c: app.xuezhang.engine.plugin.ProviderConfig): OkHttpClient {
+        val px = c.proxy.trim()
+        if (px.isBlank() || ':' !in px) return http
+        val host = px.substringBeforeLast(':').removePrefix("http://"); val port = px.substringAfterLast(':').toIntOrNull() ?: return http
+        return http.newBuilder().proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress.createUnresolved(host, port))).build()
+    }
+
+    private fun execCall(c: app.xuezhang.engine.plugin.ProviderConfig, call: app.xuezhang.engine.plugin.HttpCall): okhttp3.Response {
+        val rb = Request.Builder().url(call.url)
+        call.headers.forEach { (k, v) -> rb.header(k, v) }
+        if (call.method == "POST") rb.post((call.body ?: "{}").toRequestBody(JSON)) else rb.get()
+        return clientFor(c).newCall(rb.build()).execute()
+    }
+
+    /** 供应商兼容：OpenAI 兼容 / Anthropic / Gemini 风格统一走 ProviderRequests 构造请求。 */
+    private fun customChat(c: app.xuezhang.engine.plugin.ProviderConfig, system: String, parts: List<Part>, model: String, json: Boolean, temperature: Double, onDelta: ((String) -> Unit)?): String {
+        val key = Auth.providerKeys[c.id].orEmpty()
+        val user = parts.mapNotNull { it.text }.joinToString("\n")
+        val imgs = parts.mapNotNull { it.jpeg?.let(::b64) }
+        val m = model.takeIf { it.isNotBlank() && (c.models.isEmpty() || it in c.models || c.defaultModel.isBlank()) } ?: c.defaultModel.ifBlank { model }
+        val call = app.xuezhang.engine.plugin.ProviderRequests.chat(c, key, m, system, user, imgs, json, temperature, stream = onDelta != null)
+        execCall(c, call).use { r ->
+            if (!r.isSuccessful) throw ApiException("${c.name} 请求失败 ${r.code}：${r.body?.string().orEmpty().take(160)}")
+            if (onDelta == null) return app.xuezhang.engine.plugin.ProviderRequests.parseChat(c, r.body!!.string())
+            val sb = StringBuilder()
+            sse(r) { _, j -> val d = app.xuezhang.engine.plugin.ProviderRequests.parseDelta(c, j); if (d.isNotEmpty()) { sb.append(d); onDelta(sb.toString()) }; true }
+            return sb.toString()
+        }
+    }
+
+    /** 拉取自定义服务商的模型列表（/models）。 */
+    fun customModels(c: app.xuezhang.engine.plugin.ProviderConfig, key: String): List<String> =
+        execCall(c, app.xuezhang.engine.plugin.ProviderRequests.models(c, key)).use { r ->
+            val t = r.body?.string().orEmpty()
+            if (!r.isSuccessful) throw ApiException("获取模型失败 ${r.code}：${t.take(160)}")
+            app.xuezhang.engine.plugin.ProviderRequests.parseModels(t)
+        }
 
     private fun b64(b: ByteArray) = android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
 

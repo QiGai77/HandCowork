@@ -123,6 +123,7 @@ data class Settings(
     val ghIncludeAudio: Boolean = false,    // 备份里包含录音
     val ghLastBackup: Long = 0,
     val ghLastCommit: String = "",
+    val customProvider: String = "",        // v0.0.7.8 供应商兼容：选中的自定义服务商 id（空 = 用内置服务商）
 )
 
 object Store {
@@ -218,7 +219,7 @@ object Store {
         .put("th", theme).put("sf", shelfFold).put("cds", cardStyle).put("ghc", ghClientId).put("ght", ghToken).put("ghu", ghUser)
         .put("obd", onboardingDone).put("un", userName).put("ua", userAvatar).put("ue", userEmail)
         .put("mm", modelMode).put("gtu", giteeUser).put("gtt", giteeToken)
-        .put("ghr", ghRepo).put("gha", ghAutoBackup).put("ghau", ghIncludeAudio).put("ghl", ghLastBackup).put("ghlc", ghLastCommit)
+        .put("ghr", ghRepo).put("gha", ghAutoBackup).put("ghau", ghIncludeAudio).put("ghl", ghLastBackup).put("ghlc", ghLastCommit).put("cpv", customProvider)
     private fun JSONObject.settings(): Settings { val d = Settings(); return Settings(optString("ab", d.asrBase), optString("ak"), optString("am", d.asrModel),
         optString("lb", d.llmBase), optString("lk"), optString("lm", d.llmModel), optInt("dm", 1),
         optInt("cs", 15), optBoolean("cf", true), optBoolean("lx", true),
@@ -230,7 +231,7 @@ object Store {
         optInt("th"), optBoolean("sf"), optInt("cds"), optString("ghc"), optString("ght"), optString("ghu"),
         optBoolean("obd", false), optString("un", d.userName), optString("ua", d.userAvatar), optString("ue", d.userEmail),
         optInt("mm", 0), optString("gtu", d.giteeUser), optString("gtt", d.giteeToken),
-        optString("ghr", d.ghRepo).ifBlank { d.ghRepo }, optBoolean("gha"), optBoolean("ghau"), optLong("ghl"), optString("ghlc")) }
+        optString("ghr", d.ghRepo).ifBlank { d.ghRepo }, optBoolean("gha"), optBoolean("ghau"), optLong("ghl"), optString("ghlc"), optString("cpv")) }
 
     /** 云同步用的数据包：课程 + 笔记（不含 API Key 和登录令牌）。 */
     fun exportBundle(): JSONObject = JSONObject().put("app", "xuezhang").put("v", 1).put("at", System.currentTimeMillis())
