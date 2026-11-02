@@ -18,7 +18,7 @@ object Plugins {
 
     var root: File? = null
         private set
-    var appVersion: String = "0.0.7.8"
+    var appVersion: String = "0.0.7.9"
     val installed = mutableStateListOf<Installed>()
     val state = mutableStateOf(PluginState())
     /** 每次重建注册表 +1，界面据此刷新（主题、封面、提示词、服务商）。 */
