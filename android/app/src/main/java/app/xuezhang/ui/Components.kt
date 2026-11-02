@@ -171,9 +171,12 @@ fun GlassPill(backdrop: Backdrop = LocalBg.current!!, text: String, onClick: () 
 fun PlainCard(modifier: Modifier = Modifier, radius: Dp = 22.dp, padding: PaddingValues = PaddingValues(16.dp), onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(radius)
     val bg = LocalBg.current
+    val surfaceColor = if (ThemeLook.active) (ThemeLook.color("glass") ?: C.Card.copy(alpha = 0.88f))
+        else if (ThemeState.dark) Color(0xFF181A22).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.58f)
     Column(
-        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = if (ThemeState.dark) Color(0xFF181A22).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.58f), blurDp = 12f, lensH = 10f, lensA = 18f)
+        (if (bg != null) modifier.glass(bg, RoundedRectangle(radius), surface = surfaceColor, blurDp = 12f, lensH = 10f, lensA = 18f)
         else modifier.shadow(10.dp, shape, ambientColor = Color(0x14000000), spotColor = Color(0x10000000)).background(C.Card, shape))
+            .then(if (ThemeLook.active) Modifier.border(0.6.dp, C.Line, shape) else Modifier)
             .clip(shape)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(padding),

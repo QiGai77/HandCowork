@@ -135,7 +135,7 @@ fun checkGiteeUpdate(scope: CoroutineScope, ctx: Context) {
     }
 }
 
-private val MeBlue = Color(0xFF1F6FEB)
+private val MeBlue get() = C.Accent
 
 @Composable
 private fun MeCard(content: @Composable ColumnScope.() -> Unit) =
@@ -365,8 +365,7 @@ fun SettingsTab() {
                 )
                 MeLine()
                 // v0.0.7.8 插件：主题、封面、识别优化技能、服务商…
-                MeRow("puzzle", "插件", value = app.xuezhang.engine.plugin.Plugins.enabled().joinToString(" · ") { it.m.name }.ifBlank { "主题 · 技能 · 服务商" },
-                    onClick = { Nav.push(Route.Plugins()) })
+                MeRow("puzzle", "插件", onClick = { Nav.push(Route.Plugins()) })
                 MeLine()
                 MeRow("monitor", "显示与交互", expanded = dispOpen, onClick = { dispOpen = !dispOpen })
                 Fold(dispOpen) {
@@ -565,9 +564,7 @@ private fun AssistRow(icon: String, title: String, model: String, ok: Boolean, o
 
 @Composable
 fun AdvancedScreen() {
-    GlassScaffold(content = { SettingsAdvancedList() }, overlay = { b ->
-        Box(Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 44.dp)) { GlassCircle(b, "back", { Nav.pop() }) }
-    })
+    GlassScaffold(content = { SettingsAdvancedList() }, overlay = { b -> BackBar(b) })
 }
 
 /** 连接账户：Google（原生 4 色标志）、Gitee（私人令牌与远程更新）、GitHub（个人访问令牌）。 */

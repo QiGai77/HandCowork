@@ -1,6 +1,7 @@
 package app.xuezhang.engine.plugin
 
 import androidx.compose.runtime.mutableStateOf
+import java.io.File
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -80,6 +81,29 @@ object Market {
 
     /** 读取截图/图标：返回字节（失败 null）。 */
     fun image(path: String): ByteArray? = runCatching { download(path) }.getOrNull()
+
+    /** 获取作者的 GitHub 头像（默认使用 QiGai77），存放在本机 cache/avatars 中 */
+    fun authorAvatar(author: String): ByteArray? {
+        val user = author.trim().takeIf { it.isNotBlank() && it.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' } } ?: OWNER
+        val cacheDir = File(app.xuezhang.data.Store.dir, "cache/avatars").apply { mkdirs() }
+        val f = File(cacheDir, "$user.png")
+        if (f.exists() && f.length() > 0 && System.currentTimeMillis() - f.lastModified() < 7 * 86400 * 1000L) {
+            return runCatching { f.readBytes() }.getOrNull()
+        }
+        val url = "https://github.com/$user.png?size=128"
+        return runCatching {
+            val req = Request.Builder().url(url).header("User-Agent", "xuezhang-app").build()
+            app.xuezhang.net.Api.http.newCall(req).execute().use { r ->
+                if (r.isSuccessful) {
+                    val bytes = r.body?.bytes()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        runCatching { f.writeBytes(bytes) }
+                        bytes
+                    } else null
+                } else null
+            }
+        }.getOrNull()
+    }
 
     @Suppress("unused")
     private fun parseErr(s: String) = runCatching { JSONObject(s).optString("message") }.getOrNull()

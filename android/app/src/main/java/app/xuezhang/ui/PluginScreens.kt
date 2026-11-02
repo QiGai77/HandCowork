@@ -85,10 +85,25 @@ private fun TypeChips(types: List<String>) {
 }
 
 @Composable
-private fun PluginIcon(bmp: ImageBitmap?, name: String, size: androidx.compose.ui.unit.Dp = 46.dp) {
+private fun authorBitmap(author: String): ImageBitmap? {
+    val user = author.trim().takeIf { it.isNotBlank() && it.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' } } ?: Market.OWNER
+    val v by produceState<ImageBitmap?>(null, user) {
+        value = withContext(Dispatchers.IO) {
+            Market.authorAvatar(user)?.let { b ->
+                runCatching { BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap() }.getOrNull()
+            }
+        }
+    }
+    return v
+}
+
+@Composable
+private fun PluginIcon(bmp: ImageBitmap?, author: String = "", name: String, size: androidx.compose.ui.unit.Dp = 46.dp) {
+    val authorBmp = if (bmp == null) authorBitmap(author) else null
+    val displayBmp = bmp ?: authorBmp
     Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).background(C.Fill), contentAlignment = Alignment.Center) {
-        if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else BasicText(name.take(1), style = T.Head.copy(fontSize = 20.sp, color = C.Sec))
+        if (displayBmp != null) Image(displayBmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        else BasicText(name.take(1), style = T.Head.copy(fontSize = (size.value * 0.44f).sp, color = C.Sec))
     }
 }
 
@@ -194,13 +209,10 @@ private fun InstalledCard(p: Plugins.Installed) {
     val on = Plugins.isEnabled(p.m.id)
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth(), onClick = { Nav.push(Route.PluginDetail(p.m.id)) }) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(if (p.compat.ok) 1f else 0.55f)) {
-            PluginIcon(remember(p.m.id, p.m.version) { localIcon(p) }, p.m.name)
+            PluginIcon(remember(p.m.id, p.m.version) { localIcon(p) }, p.m.author, p.m.name)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BasicText(p.m.name, style = T.Item.copy(fontSize = 16.sp)); Spacer(Modifier.width(6.dp))
-                    BasicText("v${p.m.version}", style = T.Cap.copy(fontSize = 11.sp))
-                }
+                BasicText(p.m.name, style = T.Item.copy(fontSize = 16.sp))
                 Spacer(Modifier.height(3.dp)); TypeChips(p.m.types)
                 Spacer(Modifier.height(3.dp))
                 BasicText(if (p.compat.ok) p.m.description else "不兼容：" + p.compat.reason, style = T.Cap.copy(fontSize = 11.5.sp, color = if (p.compat.ok) C.Sec else C.Red), maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -219,12 +231,15 @@ private fun MarketCard(e: MarketEntry) {
     val upd = Market.hasUpdate(e)
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth(), onClick = { Nav.push(Route.PluginDetail(e.id, market = true)) }) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.alpha(if (compat.ok) 1f else 0.55f)) {
-            PluginIcon(marketBitmap(e.icon, 256), e.name)
+            PluginIcon(marketBitmap(e.icon, 256), e.author, e.name)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BasicText(e.name, style = T.Item.copy(fontSize = 16.sp)); Spacer(Modifier.width(6.dp))
-                    BasicText("v${e.version} · ${"%.1f".format(e.size / 1024.0 / 1024.0)}MB", style = T.Cap.copy(fontSize = 11.sp))
+                    BasicText(e.name, style = T.Item.copy(fontSize = 16.sp))
+                    if (e.size > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        BasicText("${"%.1f".format(e.size / 1024.0 / 1024.0)}MB", style = T.Cap.copy(fontSize = 11.sp))
+                    }
                 }
                 Spacer(Modifier.height(3.dp)); TypeChips(e.types)
                 Spacer(Modifier.height(3.dp))
@@ -262,7 +277,7 @@ fun PluginDetailScreen(id: String, market: Boolean) {
             item { TopInset(); Spacer(Modifier.height(44.dp)) }
             item {
                 Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PluginIcon(if (inst != null) remember(inst.m.version) { localIcon(inst) } else marketBitmap(me?.icon.orEmpty(), 256), m.name, 64.dp)
+                    PluginIcon(if (inst != null) remember(inst.m.version) { localIcon(inst) } else marketBitmap(me?.icon.orEmpty(), 256), m.author, m.name, 64.dp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         BasicText(m.name, style = T.Title)

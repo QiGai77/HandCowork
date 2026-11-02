@@ -169,9 +169,17 @@ fun SettingsAdvancedList() {
         }
     }
 
-    LazyColumn(Modifier.fillMaxWidth()) {
-        item { TopInset(); PageHeader("全部设置", "模型、转写、账号与数据") }
-        item { AccountCard(s.account, lectures.size, lectures.sumOf { it.durationMs }) }
+    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 120.dp)) {
+        item { TopInset(); PageHeader("全部设置", "插件扩展、服务商兼容、模型调优与系统配置") }
+        item { SectionLabel("插件与扩展") }
+        item {
+            PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                val pluginCount = app.xuezhang.engine.plugin.Plugins.enabled().size
+                Row2("插件管理与市场", if (pluginCount > 0) "已启用 $pluginCount 个" else "主题 · 技能 · 服务商", onClick = { Nav.push(Route.Plugins()) })
+                Divider(18.dp)
+                Row2("供应商与上游兼容", "OpenAI / Anthropic / Gemini / 本地 Ollama", onClick = { Nav.push(Route.Providers) })
+            }
+        }
         item { SectionLabel("模型") }
         item {
             PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), radius = 30.dp, padding = PaddingValues(14.dp)) {
@@ -242,6 +250,8 @@ fun SettingsAdvancedList() {
         item { SectionLabel("账号与数据") }
         item {
             PlainCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                Row2("连接第三方账户", if (listOfNotNull(s.giteeUser.takeIf { it.isNotBlank() }, s.ghUser.takeIf { it.isNotBlank() }, app.xuezhang.net.Auth.google.value?.let { "Google" }).isEmpty()) "GitHub / Gitee / Google" else "已连接", onClick = { Nav.push(Route.Accounts) })
+                Divider(18.dp)
                 Row2("云同步课程与笔记", if (s.lastSync > 0) "上次 " + java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(s.lastSync)) else "云盘 / WebDAV", onClick = { Nav.sheet.value = Sheet.Sync })
                 Divider(18.dp)
                 Row2("数据位置", "仅本机 · ${lectures.size} 节笔记")

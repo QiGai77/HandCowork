@@ -90,18 +90,94 @@ object ThemeLook {
 fun DrawScope.drawThemeBackground(): Boolean {
     val a = ThemeRegistry.active.value ?: return false
     val sp = a.spec
-    drawRect(sp.color("bg")?.let { Color(it) } ?: Color(0xFFF3EEE2))
-    ThemeArt.rel(sp.texture, 1024)?.let { tex ->
-        drawRect(ShaderBrush(ImageShader(tex, TileMode.Repeated, TileMode.Repeated)), alpha = sp.textureAlpha.coerceIn(0f, 1f))
-    }
+    val bg = sp.color("bg")?.let { Color(it) } ?: Color(0xFFF3EEE2)
+    drawRect(bg)
+
     val w = size.width; val h = size.height
-    ThemeArt.rel(sp.topArt)?.let { img ->
-        val ih = (w * img.height / img.width).toInt()
-        drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset(0, 0), IntSize(w.toInt(), ih), alpha = sp.artAlpha)
+
+    // 1. 纹理图片（若有），否则程序化宣纸微纤维与纸质质感
+    val tex = ThemeArt.rel(sp.texture, 1024)
+    if (tex != null) {
+        drawRect(ShaderBrush(ImageShader(tex, TileMode.Repeated, TileMode.Repeated)), alpha = sp.textureAlpha.coerceIn(0f, 1f))
+    } else {
+        val fiberColor = Color(0x0C2B2B2B)
+        val fiberHighlight = Color(0x18FFFFFF)
+        val count = 36
+        for (i in 0 until count) {
+            val fx = ((i * 137.5f) % w)
+            val fy = ((i * 269.3f) % h)
+            val fl = 16f + (i % 7) * 7f
+            val rad = Math.toRadians((i * 47.0) % 180.0).toFloat()
+            val dx = kotlin.math.cos(rad) * fl
+            val dy = kotlin.math.sin(rad) * fl
+            drawLine(fiberColor, Offset(fx, fy), Offset(fx + dx, fy + dy), strokeWidth = 0.8f)
+            drawLine(fiberHighlight, Offset(fx + 0.5f, fy + 0.5f), Offset(fx + dx + 0.5f, fy + dy + 0.5f), strokeWidth = 0.5f)
+        }
     }
-    ThemeArt.rel(sp.bottomArt)?.let { img ->
-        val ih = (w * img.height / img.width).toInt()
-        drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset(0, (h - ih).toInt()), IntSize(w.toInt(), ih), alpha = sp.artAlpha)
+
+    // 2. 顶部远山插画（若有图片用图片，否则程序化绘制写意水墨重峦迭嶂）
+    val topImg = ThemeArt.rel(sp.topArt)
+    if (topImg != null) {
+        val ih = (w * topImg.height / topImg.width).toInt()
+        drawImage(topImg, IntOffset.Zero, IntSize(topImg.width, topImg.height), IntOffset(0, 0), IntSize(w.toInt(), ih), alpha = sp.artAlpha)
+    } else {
+        val inkDark = sp.color("ink")?.let { Color(it) } ?: Color(0xFF2B2B2B)
+        // 远山（缥缈淡墨）
+        val pFar = Path().apply {
+            moveTo(0f, h * 0.12f)
+            cubicTo(w * 0.25f, h * 0.06f, w * 0.45f, h * 0.14f, w * 0.70f, h * 0.07f)
+            cubicTo(w * 0.85f, h * 0.04f, w * 0.95f, h * 0.09f, w, h * 0.08f)
+            lineTo(w, 0f)
+            lineTo(0f, 0f)
+            close()
+        }
+        drawPath(pFar, Brush.verticalGradient(
+            colors = listOf(inkDark.copy(alpha = 0.07f), inkDark.copy(alpha = 0.02f), Color.Transparent),
+            startY = 0f, endY = h * 0.14f
+        ))
+
+        // 中山（主峰挺秀，润泽水墨）
+        val pMid = Path().apply {
+            moveTo(0f, h * 0.18f)
+            cubicTo(w * 0.18f, h * 0.11f, w * 0.35f, h * 0.16f, w * 0.52f, h * 0.09f)
+            cubicTo(w * 0.68f, h * 0.04f, w * 0.82f, h * 0.15f, w, h * 0.12f)
+            lineTo(w, 0f)
+            lineTo(0f, 0f)
+            close()
+        }
+        drawPath(pMid, Brush.verticalGradient(
+            colors = listOf(inkDark.copy(alpha = 0.09f), inkDark.copy(alpha = 0.03f), Color.Transparent),
+            startY = 0f, endY = h * 0.20f
+        ))
+
+        // 近岫（右侧低缓墨影）
+        val pNear = Path().apply {
+            moveTo(w * 0.40f, 0f)
+            cubicTo(w * 0.60f, h * 0.16f, w * 0.78f, h * 0.18f, w, h * 0.15f)
+            lineTo(w, 0f)
+            close()
+        }
+        drawPath(pNear, Brush.verticalGradient(
+            colors = listOf(inkDark.copy(alpha = 0.06f), Color.Transparent),
+            startY = 0f, endY = h * 0.19f
+        ))
+    }
+
+    // 3. 底部江南水波插画（若有图片用图片，否则程序化绘制静谧水波波纹）
+    val botImg = ThemeArt.rel(sp.bottomArt)
+    if (botImg != null) {
+        val ih = (w * botImg.height / botImg.width).toInt()
+        drawImage(botImg, IntOffset.Zero, IntSize(botImg.width, botImg.height), IntOffset(0, (h - ih).toInt()), IntSize(w.toInt(), ih), alpha = sp.artAlpha)
+    } else {
+        val inkDark = sp.color("ink")?.let { Color(it) } ?: Color(0xFF2B2B2B)
+        for (j in 0 until 4) {
+            val yBase = h - (14f + j * 16f) * density
+            val pWave = Path().apply {
+                moveTo(0f, yBase)
+                cubicTo(w * 0.33f, yBase - 4f * density, w * 0.66f, yBase + 4f * density, w, yBase)
+            }
+            drawPath(pWave, inkDark.copy(alpha = 0.035f - j * 0.007f), style = Stroke(width = 1.2f * density))
+        }
     }
     return true
 }
