@@ -58,9 +58,17 @@ sections 3~8 节，按讲课顺序；nodes 第一个是本节课的根主题，�
 只输出 JSON。"""
 
     /** 笔记详略与完整性要求，拼在 NOTES 后面。 */
-    fun notesFor(depth: Int, part: Int = 1, total: Int = 1): String = get("notes$depth", NOTES + "\n\n" + (if (depth == 0) NOTES_SIMPLE else NOTES_DETAIL)) +
-        COVERAGE + if (total > 1) "\n\n这是整节课的第 $part/$total 部分（按时间顺序切分）。只整理这一部分的内容，sections 覆盖本部分全部内容；" +
+    fun notesFor(depth: Int, part: Int = 1, total: Int = 1, stem: Boolean = false): String = get("notes$depth", NOTES + "\n\n" + (if (depth == 0) NOTES_SIMPLE else NOTES_DETAIL)) +
+        COVERAGE + (if (stem) stemRule(total) else "") + if (total > 1) "\n\n这是整节课的第 $part/$total 部分（按时间顺序切分）。只整理这一部分的内容，sections 覆盖本部分全部内容；" +
             (if (part > 1) "title 可留空，nodes 不要再写根主题（第一个节点 parent 也填 -1，会被挂到总根下）；" else "") + "mnemonics 与 cards 只出本部分的。" else ""
+
+    /** 工科 / 理科课程：图文并茂，强制 3~5 个交互组件（优先于前文的数量限制）。 */
+    fun stemRule(total: Int = 1): String = """
+
+工科/理科课程的图文要求（必须遵守，优先于前文对交互组件数量的限制）：
+- ${if (total > 1) "整份笔记合计 3~5 个交互组件；本部分至少写 2 个，其中至少 1 个是函数图像 plot" else "整份笔记必须写 3~5 个交互组件，其中至少 1~2 个是函数图像 plot（带可拖动参数）"}，其余用分步推导 steps、选择题 quiz、对比表 compare、相量图 phasor，放在最需要直观理解的核心概念处，分散在不同小节。
+- 函数图像要选这节课真正的核心关系：如信号 x(t)/x[n]、频率响应幅值、指数衰减/阶跃响应、电容充放电、积分面积、函数单调性等；plot 里加 "caption":"一两句图注：图说明了什么、拖动参数时看什么"，并在组件前后用一两句话解释看图要点。
+- 正文要图文穿插：定义 → 公式 → 交互图/课件页 → 解读 → 考点，不要把所有组件堆在最后。"""
 
     const val NOTES_SIMPLE = """详略：简单。每节 body 80~200 字，只保留定义、核心公式、考点和结论，不展开推导；交互组件最多 2 个。"""
     const val NOTES_DETAIL = """详略：详细。每节 body 250~700 字：讲清定义、来龙去脉、完整推导步骤、例题思路、老师的原话强调和易错点；sections 可多到 12 节；交互组件最多 4 个。"""

@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,13 +62,17 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** 渲染一段笔记正文：文本走 RichText，```ui 块走原生组件。任何组件内部出错都只影响这一块。 */
+/** 翻书页（纸张风格）里渲染时为 true：组件用暖白纸底、墨色文字、翡翠绿曲线。 */
+val LocalPaperStyle = androidx.compose.runtime.staticCompositionLocalOf { false }
+private val Jade = Color(0xFF2F7A5C)
+
 @Composable
-fun NoteBody(body: String, onMath: ((String) -> Unit)? = null) {
+fun NoteBody(body: String, onMath: ((String) -> Unit)? = null, style: androidx.compose.ui.text.TextStyle = T.Body) {
     val parts = remember(body) { runCatching { UiBlocks.split(body) }.getOrElse { listOf(NotePart.Text(body)) } }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         parts.forEach { p ->
             when (p) {
-                is NotePart.Text -> RichText(p.text, onMath = onMath)
+                is NotePart.Text -> RichText(p.text, onMath = onMath, style = style)
                 is NotePart.Ui -> UiBlockView(p.block)
             }
         }
@@ -76,17 +81,19 @@ fun NoteBody(body: String, onMath: ((String) -> Unit)? = null) {
 
 @Composable
 fun UiBlockView(b: UiBlock) {
+    val paper = LocalPaperStyle.current
+    val accent = if (paper) Jade else C.Blue
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-            .background(if (ThemeState.dark) Color(0xFF161820) else Color(0xFFF6F8FC))
-            .border(0.6.dp, if (ThemeState.dark) Color(0x330A72E8) else Color(0x140A72E8), RoundedCornerShape(18.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(if (paper) 6.dp else 18.dp))
+            .background(if (paper) Color(0xFFFFFCF3) else if (ThemeState.dark) Color(0xFF161820) else Color(0xFFF6F8FC))
+            .border(if (paper) 0.8.dp else 0.6.dp, if (paper) Color(0xFFD9CDB0) else if (ThemeState.dark) Color(0x330A72E8) else Color(0x140A72E8), RoundedCornerShape(if (paper) 6.dp else 18.dp))
             .padding(12.dp).animateContentSize()
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BasicText(when (b) { is UiBlock.Plot -> "图像"; is UiBlock.Steps -> "推导"; is UiBlock.Quiz -> "小测"; is UiBlock.Compare -> "对比"; is UiBlock.Phasor -> "相量图" },
-                Modifier.clip(RoundedCornerShape(6.dp)).background(C.Blue.copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.dp),
-                style = T.Cap.copy(color = C.Blue, fontWeight = FontWeight.Bold, fontSize = 11.sp))
-            if (b.title.isNotBlank()) { Spacer(Modifier.width(8.dp)); BasicText(b.title, style = T.Btn.copy(fontSize = 14.5.sp)) }
+            BasicText(when (b) { is UiBlock.Plot -> "函数图像"; is UiBlock.Steps -> "推导"; is UiBlock.Quiz -> "小测"; is UiBlock.Compare -> "对比"; is UiBlock.Phasor -> "相量图" },
+                Modifier.clip(RoundedCornerShape(6.dp)).background(accent.copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.dp),
+                style = T.Cap.copy(color = accent, fontWeight = FontWeight.Bold, fontSize = 11.sp))
+            if (b.title.isNotBlank()) { Spacer(Modifier.width(8.dp)); BasicText(b.title, Modifier.weight(1f), style = T.Btn.copy(fontSize = 14.5.sp, fontFamily = if (paper) Serif else null, color = if (paper) Color(0xFF2A271E) else C.Ink)) }
         }
         Spacer(Modifier.height(8.dp))
         when (b) {
@@ -114,13 +121,13 @@ private fun ParamSlider(p: Param, value: Double, onChange: (Double) -> Unit) {
                 detectTapGestures { set(it.x) }
             }.pointerInput(p, wPx) { detectHorizontalDragGestures { ch, _ -> set(ch.position.x) } }) {
                 Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(4.dp).clip(Capsule()).background(Color(0x22787880)))
-                Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(f.coerceAtLeast(0.001f)).height(4.dp).clip(Capsule()).background(C.Blue))
+                Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(f.coerceAtLeast(0.001f)).height(4.dp).clip(Capsule()).background(if (LocalPaperStyle.current) Jade else C.Blue))
                 Box(Modifier.align(Alignment.CenterStart).offset(x = mw * f - 11.dp).size(22.dp).clip(Capsule()).background(if (ThemeState.dark) Color(0xFF2C2F38) else Color.White)
                     .border(0.5.dp, if (ThemeState.dark) Color(0x33FFFFFF) else Color(0x22000000), Capsule()))
             }
         }
         Spacer(Modifier.width(8.dp))
-        BasicText(fmtNum(value) + p.unit, Modifier.widthIn(min = 40.dp), style = T.Cap.copy(color = C.Blue, fontWeight = FontWeight.Bold))
+        BasicText(p.name + " = " + fmtNum(value) + p.unit, Modifier.widthIn(min = 56.dp), style = T.Cap.copy(color = if (LocalPaperStyle.current) Jade else C.Blue, fontWeight = FontWeight.Bold))
     }
 }
 
@@ -133,23 +140,39 @@ fun fmtNum(v: Double): String = when {
 
 @Composable
 private fun PlotView(b: UiBlock.Plot) {
+    val paper = LocalPaperStyle.current
+    val dark = ThemeState.dark && !paper
+    val series = if (paper || !dark) listOf(Jade, Color(0xFFC0493A), Color(0xFF2F5E9E)) else SERIES
     val vals = remember(b) { mutableStateListOf<Double>().apply { b.params.forEach { add(it.value) } } }
     val parsed = remember(b) { b.exprs.map { (l, e) -> l to Expr.tryParse(e) } }
     val env = HashMap<String, Double>().apply { b.params.forEachIndexed { i, p -> put(p.name, vals[i]) } }
-    val n = 160
+    val n = 200
     val xs = (0..n).map { b.xMin + (b.xMax - b.xMin) * it / n }
     val ys = parsed.map { (_, e) -> xs.map { x -> Expr.safeEval(e, env + ("x" to x)) } }
     val finite = ys.flatten().filter { it.isFinite() }
     val y0 = b.yMin ?: (finite.minOrNull() ?: -1.0).let { if (it > 0) 0.0 else it }
     val y1 = (b.yMax ?: (finite.maxOrNull() ?: 1.0)).let { if (it <= y0) y0 + 1 else it }
-    Canvas(Modifier.fillMaxWidth().height(170.dp)) {
-        val padL = 6.dp.toPx(); val w = size.width - padL; val h = size.height
+    var probe by remember(b) { mutableStateOf<Double?>(null) } // 手指按住的位置 x
+    val ink = if (dark) Color(0xFFDADCE2) else Color(0xFF3A372E)
+    val grid = if (dark) Color(0x18FFFFFF) else if (paper) Color(0x1F8B7A55) else Color(0x14000000)
+    var cw by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    val dens = LocalDensity.current
+    Canvas(Modifier.fillMaxWidth().height(180.dp).onSizeChanged { cw = it.width.toFloat() }.pointerInput(b) {
+        detectHorizontalDragGestures(onDragStart = { o -> probe = o.x.toDouble() }, onDragEnd = { probe = null }, onDragCancel = { probe = null }) { ch, _ -> ch.consume(); probe = ch.position.x.toDouble() }
+    }.pointerInput(b, "tap") { detectTapGestures(onPress = { o -> probe = o.x.toDouble(); tryAwaitRelease(); probe = null }) }) {
+        val padL = 30.dp.toPx(); val padB = 18.dp.toPx(); val padT = 6.dp.toPx()
+        val w = size.width - padL - 4.dp.toPx(); val h = size.height - padB - padT
         fun px(x: Double) = padL + ((x - b.xMin) / (b.xMax - b.xMin) * w).toFloat()
-        fun py(y: Double) = (h - (y - y0) / (y1 - y0) * h).toFloat()
-        // 网格与坐标轴
-        for (i in 0..4) { val yy = h * i / 4; drawLine(if (ThemeState.dark) Color(0x18FFFFFF) else Color(0x11000000), Offset(padL, yy), Offset(size.width, yy), 1f) }
-        if (y0 < 0 && y1 > 0) drawLine(if (ThemeState.dark) Color(0x55FFFFFF) else Color(0x55000000), Offset(padL, py(0.0)), Offset(size.width, py(0.0)), 1.2f)
-        if (b.xMin < 0 && b.xMax > 0) drawLine(if (ThemeState.dark) Color(0x55FFFFFF) else Color(0x55000000), Offset(px(0.0), 0f), Offset(px(0.0), h), 1.2f)
+        fun py(y: Double) = padT + (h - (y - y0) / (y1 - y0) * h).toFloat()
+        // 网格
+        for (i in 0..4) { val yy = padT + h * i / 4; drawLine(grid, Offset(padL, yy), Offset(padL + w, yy), 1f) }
+        for (i in 0..6) { val xx = padL + w * i / 6; drawLine(grid, Offset(xx, padT), Offset(xx, padT + h), 1f) }
+        // 坐标轴
+        val axY = if (y0 < 0 && y1 > 0) py(0.0) else padT + h
+        val axX = if (b.xMin < 0 && b.xMax > 0) px(0.0) else padL
+        drawLine(ink.copy(alpha = 0.7f), Offset(padL, axY), Offset(padL + w, axY), 1.3f)
+        drawLine(ink.copy(alpha = 0.7f), Offset(axX, padT), Offset(axX, padT + h), 1.3f)
+        // 曲线
         ys.forEachIndexed { si, s ->
             val path = Path(); var pen = false
             s.forEachIndexed { i, y ->
@@ -157,24 +180,54 @@ private fun PlotView(b: UiBlock.Plot) {
                 val p = Offset(px(xs[i]), py(y).coerceIn(-h, 2 * h))
                 if (pen) path.lineTo(p.x, p.y) else path.moveTo(p.x, p.y); pen = true
             }
-            drawPath(path, SERIES[si % SERIES.size], style = Stroke(2.4.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(path, series[si % series.size], style = Stroke(2.6.dp.toPx(), cap = StrokeCap.Round))
         }
-        drawContext.canvas.nativeCanvas.apply {
-            val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 10.sp.toPx(); color = 0xFF8A8A8E.toInt() }
-            drawText(fmtNum(y1), padL + 4, tp.textSize, tp); drawText(fmtNum(y0), padL + 4, h - 4, tp)
-            tp.textAlign = android.graphics.Paint.Align.RIGHT
-            drawText("${b.xLabel} ∈ [${fmtNum(b.xMin)}, ${fmtNum(b.xMax)}]", size.width - 4, h - 4, tp)
-        }
-    }
-    if (parsed.size > 1 || parsed.firstOrNull()?.first?.let { it != "y" } == true) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 4.dp)) {
-        parsed.forEachIndexed { i, (l, _) ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp, 3.dp).background(SERIES[i % SERIES.size])); Spacer(Modifier.width(4.dp))
-                BasicText(l, style = T.Cap.copy(fontSize = 11.5.sp))
+        // 读数游标
+        probe?.let { pxv ->
+            val xv = b.xMin + ((pxv - padL) / w).coerceIn(0.0, 1.0) * (b.xMax - b.xMin)
+            val xx = px(xv)
+            drawLine(ink.copy(alpha = 0.45f), Offset(xx, padT), Offset(xx, padT + h), 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            parsed.forEachIndexed { si, (_, e) ->
+                val yv = Expr.safeEval(e, env + ("x" to xv))
+                if (yv.isFinite() && yv in y0..y1) drawCircle(series[si % series.size], 4.dp.toPx(), Offset(xx, py(yv)))
             }
         }
+        drawContext.canvas.nativeCanvas.apply {
+            val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 10.sp.toPx(); color = (if (dark) 0xFFA0A3AB else 0xFF8A8270).toInt(); textAlign = android.graphics.Paint.Align.RIGHT }
+            drawText(fmtNum(y1), padL - 4, padT + tp.textSize, tp); drawText(fmtNum(y0), padL - 4, padT + h, tp)
+            if (y0 < 0 && y1 > 0) drawText("0", padL - 4, py(0.0) + tp.textSize / 3, tp)
+            tp.textAlign = android.graphics.Paint.Align.CENTER
+            drawText(fmtNum(b.xMin), padL, size.height - 3, tp); drawText(fmtNum(b.xMax), padL + w, size.height - 3, tp)
+            drawText(fmtNum((b.xMin + b.xMax) / 2), padL + w / 2, size.height - 3, tp)
+            tp.textAlign = android.graphics.Paint.Align.RIGHT; tp.isFakeBoldText = true
+            drawText(b.xLabel, padL + w, axY - 4, tp)
+            tp.textAlign = android.graphics.Paint.Align.LEFT
+            drawText(b.yLabel, axX + 4, padT + tp.textSize, tp)
+        }
+    }
+    // 读数
+    val readX = probe
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        parsed.forEachIndexed { i, (l, e) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(12.dp, 3.dp).clip(Capsule()).background(series[i % series.size])); Spacer(Modifier.width(4.dp))
+                BasicText(l, style = T.Cap.copy(fontSize = 11.5.sp, color = ink))
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        val readout = readX?.let { pxv ->
+            val padL = with(dens) { 30.dp.toPx() }; val w = cw - padL - with(dens) { 4.dp.toPx() }
+            val xv = b.xMin + ((pxv - padL) / w).coerceIn(0.0, 1.0) * (b.xMax - b.xMin)
+            "${b.xLabel}=${fmtNum(xv)}  " + parsed.joinToString("  ") { (l, e) -> "$l=${fmtNum(Expr.safeEval(e, env + ("x" to xv)))}" }
+        }
+        BasicText(readout ?: "按住图像读数", style = T.Cap.copy(fontSize = 11.sp, color = if (readout != null) (if (paper || !dark) Jade else C.Blue) else ink.copy(alpha = 0.6f),
+            fontWeight = if (readout != null) FontWeight.Bold else FontWeight.Normal), maxLines = 1)
     }
     b.params.forEachIndexed { i, p -> ParamSlider(p, vals[i]) { vals[i] = it } }
+    if (b.caption.isNotBlank()) {
+        Spacer(Modifier.height(6.dp))
+        BasicText("图注：" + b.caption, style = T.Cap.copy(fontSize = 12.5.sp, lineHeight = 18.sp, color = ink.copy(alpha = 0.8f), fontFamily = if (paper) Serif else null))
+    }
 }
 
 @Composable

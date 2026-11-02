@@ -12,8 +12,8 @@ android {
         applicationId = "app.xuezhang"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.0.7.5"
+        versionCode = 14
+        versionName = "0.0.7.6"
         // Google Drive 云同步用的 OAuth 客户端（「桌面应用」类型）。也可以在 App 里「我的 › 云同步 › Google Drive」填写。
         // 编译时传入：./gradlew assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (project.findProperty("googleClientId")?.toString() ?: "") + "\"")
@@ -44,7 +44,7 @@ android {
     packaging {
         resources { excludes += arrayOf("META-INF/*.version", "META-INF/**/LICENSE*", "kotlin/**", "DebugProbesKt.bin") }
     }
-    testOptions { unitTests { isIncludeAndroidResources = true; all { it.systemProperty("roborazzi.test.record", "true"); it.maxHeapSize = "3g"; it.systemProperty("robolectric.graphicsMode", "NATIVE"); it.systemProperty("robolectric.pixelCopyRenderMode", "hardware") } } }
+    testOptions { unitTests { isIncludeAndroidResources = true; all { it.systemProperty("roborazzi.test.record", "true"); it.maxHeapSize = "3g"; it.systemProperty("robolectric.graphicsMode", "NATIVE"); it.systemProperty("robolectric.pixelCopyRenderMode", "hardware"); it.systemProperty("xz.shots", project.findProperty("shots")?.toString() ?: "false") } } }
     lint { checkReleaseBuilds = false; abortOnError = false }
 }
 
@@ -71,10 +71,18 @@ dependencies {
     implementation("ru.noties:jlatexmath-android:0.2.0")
     implementation("ru.noties:jlatexmath-android-font-greek:0.2.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // 翻书卷页（Apache-2.0）https://github.com/oleksandrbalan/pagecurl
+    implementation("io.github.oleksandrbalan:pagecurl:1.5.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.robolectric:robolectric:4.16")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.46.1")
     testImplementation("androidx.test:core:1.6.1")
+}
+
+// 截图测试（Robolectric 原生渲染）只在 -Pshots=true 时跑：./gradlew testDebugUnitTest -Pshots=true --tests '*V0076ShotsTest*'
+tasks.withType<Test>().configureEach {
+    if (!project.hasProperty("shots")) exclude("**/V0076ShotsTest*")
+    (project.findProperty("testJava") as String?)?.let { executable = it }
 }

@@ -57,6 +57,7 @@ sealed interface Route {
     data object Prompts : Route
     data object Drive : Route
     data class Book(val lectureId: String) : Route
+    data class Review(val lectureId: String) : Route
     data class Materials(val courseId: String) : Route
     data object Advanced : Route
     data object Accounts : Route
@@ -143,6 +144,7 @@ fun App() {
                 Route.Prompts -> PromptsScreen()
                 Route.Drive -> DriveScreen()
                 is Route.Book -> BookScreen(r.lectureId)
+                is Route.Review -> ReviewScreen(r.lectureId)
                 is Route.Materials -> MaterialsScreen(r.courseId)
                 Route.Advanced -> AdvancedScreen()
                 Route.Accounts -> AccountsScreen()

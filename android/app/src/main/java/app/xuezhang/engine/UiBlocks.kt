@@ -24,6 +24,7 @@ sealed class UiBlock {
         val yMin: Double?, val yMax: Double?,
         val params: List<Param>,
         val xLabel: String, val yLabel: String,
+        val caption: String = "",
     ) : UiBlock()
 
     data class Steps(override val title: String, val steps: List<Pair<String, String>>) : UiBlock() // text to tex
@@ -147,7 +148,8 @@ object UiBlocks {
         val y0 = yr?.optDouble(0, Double.NaN)?.takeIf { it.isFinite() }
         val y1 = yr?.optDouble(1, Double.NaN)?.takeIf { it.isFinite() }
         return UiBlock.Plot(o.optString("title"), exprs.take(3), x0, x1, if (y0 != null && y1 != null && y1 > y0) y0 else null,
-            if (y0 != null && y1 != null && y1 > y0) y1 else null, params, o.optString("xlabel", "x").take(12), o.optString("ylabel", "y").take(12))
+            if (y0 != null && y1 != null && y1 > y0) y1 else null, params, o.optString("xlabel", "x").take(12), o.optString("ylabel", "y").take(12),
+            o.optString("caption").ifBlank { o.optString("explain") }.take(200))
     }
 
     private fun steps(o: JSONObject): UiBlock.Steps? {

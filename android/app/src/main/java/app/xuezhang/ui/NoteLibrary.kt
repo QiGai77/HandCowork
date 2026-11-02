@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.sp
 import app.xuezhang.data.Course
 import app.xuezhang.data.Lecture
 import app.xuezhang.data.Store
-import app.xuezhang.engine.CoverMatch
+import app.xuezhang.engine.HardCovers
 import app.xuezhang.engine.keep
 import com.kyant.shapes.Capsule
 import java.text.SimpleDateFormat
@@ -65,11 +65,15 @@ import java.util.Locale
 
 private val GrayPalette = NT.BookPalette(Color(0xFF8C8C92), Color(0xFF7D7D84), Color(0xFF77777E), Color(0xFF3C3C42))
 
-/** 课程的书色：按课程在列表里的顺序固定，前三门 绿 / 蓝 / 锈红。 */
+/** 课程的精装封面款（与书架、列表、上课卡片、复习卡统一）。 */
+fun courseHc(c: Course): HardCovers.Hc = HardCovers.forCourse(c.name, c.cover)
+fun lectureHc(l: Lecture, c: Course?): HardCovers.Hc = HardCovers.forLecture(l.coverStyle, c?.name, c?.cover, l.title)
+
+/** 课程的书色：取自这门课的精装封面布色。 */
 fun bookPalette(course: Course?): NT.BookPalette {
     course ?: return GrayPalette
-    val i = Store.courses.indexOfFirst { it.id == course.id }
-    return if (i < 0) GrayPalette else NT.palette(i)
+    val hc = courseHc(course)
+    return NT.BookPalette(hc.color, hc.color, hc.lightColor, hc.color)
 }
 
 /** 按课表算接下来的上课日期（含今天，今天已有笔记则跳过今天）。 */
@@ -336,32 +340,20 @@ private fun Spine(l: Lecture, c: Course?, pal: NT.BookPalette, lean: Boolean) {
 @Composable
 private fun SpineRaw(l: Lecture, c: Course?, pal: NT.BookPalette, lean: Boolean) {
     val s = NT.Dim.Shelf
-    val h = BookLook.hash(l.id)
-    val base = lerp(pal.spine, if (h % 2 == 0) Color.Black else Color.White, (h % 4) * 0.04f)
     val job = if (l.status == 1) aiJob("notes:${l.id}") else null
     val gen = l.status == 1
     val f by animateFloatAsState(job?.fraction?.floatValue ?: if (gen) 0.05f else 1f, label = "spf")
     val title = remember(l.title) { BookLook.spineTitle(l.title, c?.name.orEmpty(), 6) }
+    val hc = remember(l.coverStyle, c?.name, c?.cover) { lectureHc(l, c) }
     val height = spineH(l)
     val shape = RoundedCornerShape(s.SpineR)
     Box(Modifier.width(s.SpineW).height(height)
         .graphicsLayer { if (lean) { rotationZ = NT.Dim.Shelf.LeanDeg.toFloat(); transformOrigin = TransformOrigin(1f, 1f) } }
         .shadow(if (gen) 0.dp else 3.dp, shape).clip(shape)
-        .then(if (gen) Modifier.background(pal.spine.copy(alpha = 0.12f)).dashed(pal.spine.copy(alpha = 0.6f), s.SpineR) else Modifier)
+        .then(if (gen) Modifier.dashed(pal.spine.copy(alpha = 0.6f), s.SpineR) else Modifier)
         .bookTap(l)) {
-        // 生成中：颜色从下往上灌满
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(f.coerceIn(0f, 1f))
-            .background(Brush.horizontalGradient(listOf(lerp(base, Color.Black, 0.22f), lerp(base, Color.White, 0.10f), base, lerp(base, Color.Black, 0.25f)))))
-        if (!gen) {
-            Box(Modifier.padding(top = s.Band1).fillMaxWidth().height(s.BandH).background(NT.Colors.Gold.Line))
-            Box(Modifier.padding(top = s.Band2).fillMaxWidth().height(1.2.dp).background(NT.Colors.Gold.Line.copy(alpha = 0.85f)))
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp).fillMaxWidth().height(1.dp).background(NT.Colors.Gold.Line.copy(alpha = 0.7f)))
-        }
-        val maxChars = ((height.value - 52) / 14.5f).toInt().coerceAtLeast(2)
-        BasicText(title.take(maxChars).toList().joinToString("\n"), Modifier.align(Alignment.TopCenter).padding(top = 20.dp),
-            style = NT.Type.Spine.copy(color = if (gen) pal.deep else Color.White.copy(alpha = 0.92f), textAlign = TextAlign.Center, lineHeight = 14.5.sp))
-        BasicText(if (gen) "${(f * 100).toInt()}%" else md(l.date), Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
-            style = NT.Type.SpineDate.copy(fontSize = 7.sp, color = if (gen) pal.deep else Color.White.copy(alpha = 0.6f)))
+        // 生成中：书脊从下往上「显影」
+        HcSpine(hc, title, if (gen) "${(f * 100).toInt()}%" else md(l.date), Modifier.fillMaxSize(), fill = if (gen) f.coerceIn(0f, 1f) else 1f)
         if (l.status == 3) Box(Modifier.align(Alignment.TopEnd).padding(3.dp).size(6.dp).clip(Capsule()).background(C.Red))
     }
 }
@@ -387,23 +379,12 @@ private fun FaceCoverRaw(l: Lecture, c: Course?, pal: NT.BookPalette, w: Dp, h: 
     val s = NT.Dim.Shelf
     val gen = l.status == 1
     val job = if (gen) aiJob("notes:${l.id}") else null
-    val glyph = remember(c?.name) { CoverMatch.glyph(c?.name ?: l.title) }
-    val uni = l.coverStyle >= 0 || l.coverImg.isNotBlank()
-    val uc = Skins.coverFor(l.id, l.coverStyle)
+    val hc = remember(l.coverStyle, c?.name, c?.cover) { lectureHc(l, c) }
     Box(Modifier.graphicsLayer { rotationY = -7f; cameraDistance = 14f * density; transformOrigin = TransformOrigin(0f, 0.5f) }) {
-        Box(Modifier.size(w, h).shadow(7.dp, RoundedCornerShape(s.CoverR)).clip(RoundedCornerShape(s.CoverR))
-            .background(Brush.linearGradient(listOf(lerp(pal.cover, Color.White, 0.08f), pal.cover, lerp(pal.cover, Color.Black, 0.16f))))
-            .bookTap(l)) {
-            if (uni) UniCover(l.coverStyle, l.id, l.coverImg, Modifier.fillMaxSize())
-            Box(Modifier.width(5.dp).fillMaxHeight().background(Color.Black.copy(alpha = 0.18f)))
-            // 鎏金书口高光
-            Box(Modifier.align(Alignment.CenterEnd).width(2.dp).fillMaxHeight().background(Brush.verticalGradient(listOf(NT.Colors.Gold.Line.copy(alpha = 0.2f), NT.Colors.Gold.Line, NT.Colors.Gold.Line.copy(alpha = 0.2f)))))
-            // 纯背景质感封面：无字符字样印迹，保留纯净装帧与金色压纹
-            Column(Modifier.align(Alignment.BottomCenter).padding(bottom = s.CoverBandFromBottom).fillMaxWidth()) {
-                Box(Modifier.fillMaxWidth().height(1.4.dp).background(NT.Colors.Gold.Line))
-                Spacer(Modifier.height(2.dp))
-                Box(Modifier.fillMaxWidth().height(1.dp).background(NT.Colors.Gold.Line.copy(alpha = 0.8f)))
-            }
+        // 书签丝带（压在封面下面，露出一截）
+        Box(Modifier.align(Alignment.BottomStart).offset(x = w * 0.62f, y = s.RibbonH - 4.dp).size(s.RibbonW, s.RibbonH).background(hc.darkColor))
+        Box(Modifier.size(w, h).shadow(7.dp, RoundedCornerShape(s.CoverR)).clip(RoundedCornerShape(s.CoverR)).bookTap(l)) {
+            LectureCoverArt(l, c, hc, Modifier.fillMaxSize(), showTitle = true)
             if (gen) {
                 Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.35f)))
                 BasicText("生成中 ${((job?.fraction?.floatValue ?: 0f) * 100).toInt()}%", Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
@@ -413,9 +394,19 @@ private fun FaceCoverRaw(l: Lecture, c: Course?, pal: NT.BookPalette, w: Dp, h: 
         // 倒影
         Box(Modifier.align(Alignment.BottomCenter).offset(y = 10.dp).size(w * 0.9f, 8.dp).clip(RoundedCornerShape(50))
             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.10f), Color.Transparent))))
-        // 书签丝带
-        Box(Modifier.align(Alignment.BottomStart).offset(x = w * 0.18f, y = s.RibbonH - 4.dp).size(s.RibbonW, s.RibbonH).background(pal.chip))
     }
+}
+
+/** 一本笔记的封面：AI 封面图优先，否则精装预设（标题为课程名）。 */
+@Composable
+fun LectureCoverArt(l: Lecture, c: Course?, hc: HardCovers.Hc = lectureHc(l, c), modifier: Modifier = Modifier, showTitle: Boolean = true) {
+    if (l.coverImg.isNotBlank()) {
+        val bmp = remember(l.coverImg) { CoverImages.load(l.coverImg.removePrefix("file:")) }
+        if (bmp != null) { androidx.compose.foundation.Image(bmp, null, modifier, contentScale = androidx.compose.ui.layout.ContentScale.Crop); return }
+    }
+    if (c != null && l.coverStyle < 0 && c.cover.startsWith("file:")) { CourseCover(c, modifier, radius = 0.dp, showTitle = showTitle); return }
+    val name = c?.name ?: l.title
+    HardCover(hc, name, modifier, showTitle = showTitle)
 }
 
 @Composable
@@ -547,14 +538,7 @@ private fun Tag(t: String) {
 @Composable
 private fun MiniCover(c: Course?, l: Lecture, pal: NT.BookPalette) {
     val card = NT.Dim.Card
-    Box(Modifier.size(card.ThumbW, card.ThumbH).shadow(3.dp, RoundedCornerShape(card.ThumbR)).clip(RoundedCornerShape(card.ThumbR))
-        .background(Brush.linearGradient(listOf(lerp(pal.cover, Color.White, 0.06f), lerp(pal.cover, Color.Black, 0.14f))))) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(Color.Black.copy(alpha = 0.18f)))
-        // 纯背景书封缩略：无首字水印
-        Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 7.dp).fillMaxWidth()) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(NT.Colors.Gold.Line))
-            Spacer(Modifier.height(2.dp))
-            Box(Modifier.fillMaxWidth().height(0.8.dp).background(NT.Colors.Gold.Line.copy(alpha = 0.8f)))
-        }
+    Box(Modifier.size(card.ThumbW, card.ThumbH).shadow(3.dp, RoundedCornerShape(card.ThumbR)).clip(RoundedCornerShape(card.ThumbR))) {
+        LectureCoverArt(l, c, modifier = Modifier.fillMaxSize(), showTitle = false)
     }
 }

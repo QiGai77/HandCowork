@@ -275,6 +275,7 @@ object Live {
             }.takeLast(24000)
             genStep.intValue = 3
             val depth = genDepth ?: Store.settings.value.noteDepth
+            val stem = StemUi.isStem(c?.name)
             val chunks = chunkTranscript(transcript, if (depth == 0) 14000 else 9000)
             val head = "课程：${c?.name ?: ""}\n热词：${c?.hotwords?.joinToString("、") ?: ""}\n" + (if (slideIdx.isNotBlank()) "课件页目录：\n$slideIdx\n" else "")
             val expect = if (depth == 0) 2500.0 else 6000.0
@@ -285,7 +286,7 @@ object Live {
                 // 每段一个阶段：流式字数推进；首字前按预计耗时估算（深度思考模型可能很久才吐字）
                 job.phase(genDetail.value, (0.15f + 0.75f * (i + 1) / chunks.size), if (depth == 0) 45_000 else 90_000)
                 val r = withContext(Dispatchers.IO) {
-                    Api.gen(Prompts.notesFor(depth, i + 1, chunks.size), listOf(Api.Part(head + "\n课堂整理稿" + (if (chunks.size > 1) "（第 ${i + 1}/${chunks.size} 部分）" else "") + "：\n$ch")),
+                    Api.gen(Prompts.notesFor(depth, i + 1, chunks.size, stem), listOf(Api.Part(head + "\n课堂整理稿" + (if (chunks.size > 1) "（第 ${i + 1}/${chunks.size} 部分）" else "") + "：\n$ch")),
                         Store.settings.value.llmModel, json = true) { acc ->
                         val f = (acc.length / expect).coerceAtMost(0.95)
                         genPct.floatValue = (0.3 + 0.6 * (i + f) / chunks.size).toFloat()
@@ -304,11 +305,13 @@ object Live {
             genStep.intValue = 4
             fun arr(k: String) = o.optJSONArray(k) ?: JSONArray()
             fun <T> JSONArray.objs(f: (JSONObject) -> T) = (0 until length()).mapNotNull { runCatching { f(getJSONObject(it)) }.getOrNull() }
-            val sections = arr("sections").objs { s ->
+            val sections0 = arr("sections").objs { s ->
                 app.xuezhang.data.NoteSection(s.optString("title"),
                     s.optJSONArray("pages")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(),
                     s.optString("body"), Frames.parseAt(s.optString("at")))
             }.filter { it.title.isNotBlank() || it.body.isNotBlank() }
+            val cardsParsed = arr("cards").objs { Card(it.optString("q"), it.optString("a"), it.optString("tag", "考点")) }
+            val sections = ensureStemUi(c?.name, stem || StemUi.isStem(c?.name, o.optString("subject")), sections0, cardsParsed, job)
             val notesText = o.optString("notes").ifBlank { sections.joinToString("\n\n") { "**${it.title}** ${it.body}" } }
             val done = (Store.lecture(id) ?: l).copy(
                 title = o.optString("title").ifBlank { l.title },
@@ -316,7 +319,7 @@ object Live {
                 sections = sections,
                 mnemonics = arr("mnemonics").objs { Mnemonic(it.optString("title"), it.optString("body")) },
                 nodes = arr("nodes").objs { Node(it.optString("label"), it.optInt("parent", -1), it.optString("detail")) },
-                cards = arr("cards").objs { Card(it.optString("q"), it.optString("a"), it.optString("tag", "考点")) },
+                cards = cardsParsed,
                 status = 2)
             Store.upsertLecture(done)
             genStep.intValue = 5
@@ -331,6 +334,23 @@ object Live {
             Log.err("整理笔记", e)
             Store.lecture(id)?.let { Store.upsertLecture(it.copy(status = 3)) }
         } finally { generating.value = false }
+    }
+
+    /** 工科笔记：交互组件不足 3 个或没有函数图像 → 让模型补；仍不足 → 本地从公式兜底；最多 5 个。 */
+    private suspend fun ensureStemUi(course: String?, stem: Boolean, sections: List<app.xuezhang.data.NoteSection>, cards: List<Card>, job: AiJob): List<app.xuezhang.data.NoteSection> {
+        if (!stem || sections.isEmpty()) return StemUi.cap(sections)
+        var out = sections
+        if (StemUi.needsMore(out)) {
+            val c0 = StemUi.count(out.map { it.body })
+            genDetail.value = "补充交互图像（现有 ${c0.total} 个）"
+            job.phase(genDetail.value, 0.95f, 30_000)
+            val user = out.mapIndexed { i, s -> "[$i] ${s.title}\n${s.body.replace(Regex("```[\\s\\S]*?```"), "[组件]").take(700)}" }.joinToString("\n\n")
+            out = runCatching { StemUi.applyFix(out, withContext(Dispatchers.IO) { Api.chatJson(StemUi.fixPrompt(c0), "课程：${course.orEmpty()}\n\n$user") }) }
+                .onFailure { Log.err("补充交互组件", it) }.getOrDefault(out)
+            Log.ok("补充交互组件", "模型补充后 ${StemUi.count(out.map { it.body })}")
+        }
+        if (StemUi.needsMore(out)) out = StemUi.enforce(course.orEmpty(), out, cards)
+        return StemUi.cap(out)
     }
 
     fun fmt(ms: Long): String { val s = ms / 1000; return "%02d:%02d".format(s / 60, s % 60) }

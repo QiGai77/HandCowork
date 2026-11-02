@@ -313,7 +313,7 @@ fun CoverPickerScreen(target: String) {
     }
     GlassScaffold(content = {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp)) {
-            item { TopInset(); PageHeader("选择封面", "已为常见课程预制，按课程名自动匹配") }
+            item { TopInset(); PageHeader("选择封面", "10 款精装封面，书架、列表、上课卡片统一使用") }
             if (target != "draft") item {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(com.kyant.shapes.Capsule()).background(Brush2.ai)
                     .clickable { Nav.push(Route.ImageStudio("course:$target")) }.padding(vertical = 13.dp),
@@ -322,19 +322,20 @@ fun CoverPickerScreen(target: String) {
                     BasicText("AI 生成封面（可再次对话 / 框选修改）", style = T.Btn.copy(color = Color.White))
                 }
             }
-            val tiles = CoverMatch.PRESETS.map { it.key to "preset:${it.key}" } + listOf("通用" to "generic")
+            val autoHc = app.xuezhang.engine.HardCovers.forCourse(name, "")
+            val tiles = listOf("自动 · ${autoHc.label}" to "") + app.xuezhang.engine.HardCovers.ALL.map { "${it.n} · ${it.label}" to "hc:${it.n}" }
             tiles.chunked(3).forEach { row ->
                 item {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEach { (label, cv) ->
-                            val sel = current == cv || (current.isBlank() && ((auto != null && cv == "preset:${auto.key}") || (auto == null && cv == "generic")))
+                            val sel = if (cv.isEmpty()) current.isBlank() || current == "generic" || current.startsWith("preset:") else current == cv
                             Column(Modifier.weight(1f).clickable { apply(cv); Nav.pop() }, horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(Modifier.fillMaxWidth().aspectRatio(114f / 92f).then(if (sel) Modifier.border(2.4.dp, C.Blue, RoundedCornerShape(18.dp)).padding(3.dp) else Modifier)) {
-                                    CoverView(if (cv == "generic") name else label, cv, Modifier.fillMaxSize(), radius = 16.dp)
+                                Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).then(if (sel) Modifier.border(2.4.dp, C.Blue, RoundedCornerShape(10.dp)).padding(3.dp) else Modifier)) {
+                                    CoverView(name, cv, Modifier.fillMaxSize(), radius = 7.dp)
                                     if (sel) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp).clip(Capsule()).background(C.Blue), contentAlignment = Alignment.Center) { Icon("check", Color.White, 12.dp, 3f) }
                                 }
                                 Spacer(Modifier.height(6.dp))
-                                BasicText(if (cv == "generic") "通用 · ${CoverMatch.glyph(name)}" else label, style = T.Btn.copy(fontSize = 12.5.sp, color = if (sel) C.Blue else C.Ink), maxLines = 1)
+                                BasicText(label, style = T.Btn.copy(fontSize = 12.5.sp, color = if (sel) C.Blue else C.Ink), maxLines = 1)
                             }
                         }
                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -635,11 +636,11 @@ object Splash {
     var shownThisLaunch = false
     val visible = mutableStateOf(false)
     val ITEMS = listOf(
-        "新" to "内置 PPT/PPTX 转 PDF 工具，高保真还原原稿排版与高清插图",
-        "新" to "首页头部切换为 Today，课程表透明网格沉浸式展示",
-        "新" to "下课改成长按 1.5 秒确认，带进度环反馈，彻底防止误触中断",
-        "新" to "支持头像与昵称更换、邮箱登录、Documents/课堂学长备份 一键云备份",
-        "新" to "模型配置卡片全面升级，支持 Gitee 账户连接与远程更新检测",
+        "新" to "统一精装封面：10 款烫金布面封面，列表、书架、书脊、上课卡片、课程详情全部一致",
+        "新" to "翻书阅读做成摊开的精装书，真实卷页翻页，进度条拖动带缩略图",
+        "新" to "复习卡重做：象牙白精装卡、轻点 3D 翻面，左滑忘了 / 右滑记得",
+        "新" to "上课页按概念图重做：左右滑卡片选课，红色「开始上课」",
+        "新" to "工科笔记必带 3~5 个交互组件，至少 1 张可拖参数的函数图像",
     )
     fun versionName(ctx: Context): String = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0.0.7.1"
     fun maybeShow(ctx: Context) {

@@ -71,6 +71,12 @@ import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
 
+/** 从别的页面跳进笔记详情时要先打开的分栏（0 笔记 1 助记 2 概念图 3 复习卡 4 实录）。 */
+object NoteSeg {
+    var next = 0
+    fun take(): Int = next.also { next = 0 }
+}
+
 // =================== 笔记详情 ===================
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -78,7 +84,7 @@ fun NoteScreen(id: String) {
     val l = Store.lecture(id) ?: run { Nav.pop(); return }
     val ctx = LocalContext.current
     val course = Store.course(l.courseId)
-    var seg by remember { mutableIntStateOf(0) }
+    var seg by remember { mutableIntStateOf(NoteSeg.take()) }
     var menu by remember { mutableStateOf(false) }
     var shareMenu by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
@@ -385,7 +391,13 @@ internal fun ConceptMap(l: Lecture) {
 }
 
 @Composable
-private fun CardsTab(l: Lecture) = CardDeck(l)
+private fun CardsTab(l: Lecture) {
+    if (l.cards.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+        BasicText("全屏复习 ›", Modifier.clip(Capsule()).background(C.Fill).clickable { Nav.push(Route.Review(l.id)) }.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = T.Btn.copy(fontSize = 13.sp, color = C.Blue))
+    }
+    CardDeck(l)
+}
 
 private fun Modifier.matchParentSizeSafe() = this.fillMaxWidth().height(300.dp)
 

@@ -206,16 +206,18 @@ fun BookMenuContent(lectureId: String) {
         }
         BasicText("长按书本：封面朝外 ⇄ 侧放书脊，再选一次即可恢复", Modifier.padding(top = 6.dp), style = T.Cap)
         Spacer(Modifier.height(16.dp))
-        BasicText("万能封面", style = T.Btn)
+        BasicText("精装封面", style = T.Btn)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(48.dp, 64.dp).clip(RoundedCornerShape(8.dp)).background(C.Fill).border(if (l.coverStyle < 0 && l.coverImg.isBlank()) 2.dp else 0.dp, C.Blue, RoundedCornerShape(8.dp))
-                .clickable { Store.upsertLecture(l.copy(coverStyle = -1, coverImg = "")) }, contentAlignment = Alignment.Center) { BasicText("默认", style = T.Cap) }
-            Skins.covers.indices.forEach { i ->
-                UniCoverSwatch(i, Modifier.size(48.dp, 64.dp).clip(RoundedCornerShape(8.dp)).border(if (l.coverStyle == i && l.coverImg.isBlank()) 2.dp else 0.dp, C.Blue, RoundedCornerShape(8.dp))
+            Box(Modifier.size(48.dp, 64.dp).clip(RoundedCornerShape(6.dp)).background(C.Fill).border(if (l.coverStyle < 0 && l.coverImg.isBlank()) 2.dp else 0.dp, C.Blue, RoundedCornerShape(6.dp))
+                .clickable { Store.upsertLecture(l.copy(coverStyle = -1, coverImg = "")) }, contentAlignment = Alignment.Center) { BasicText("跟随\n课程", style = T.Cap.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center)) }
+            app.xuezhang.engine.HardCovers.ALL.forEach { hc ->
+                val i = hc.index
+                HcSwatch(hc, Modifier.size(48.dp, 64.dp).clip(RoundedCornerShape(6.dp)).border(if (l.coverStyle == i && l.coverImg.isBlank()) 2.dp else 0.dp, C.Blue, RoundedCornerShape(6.dp))
                     .clickable { Store.upsertLecture(l.copy(coverStyle = i, coverImg = "")) })
             }
         }
+        BasicText("默认跟随课程的封面；单本笔记也可以换一款。AI 封面优先显示。", Modifier.padding(top = 6.dp), style = T.Cap)
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth().clip(Capsule()).background(Brush2.ai).clickable { Nav.sheet.value = null; Nav.push(Route.ImageStudio("cover:${l.id}")) }.padding(vertical = 13.dp),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
