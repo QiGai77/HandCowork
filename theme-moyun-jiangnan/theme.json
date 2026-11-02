@@ -4,6 +4,8 @@
   "colors": {
     "bg": "#F3EEE2",
     "card": "#EBE3D3",
+    "glass": "#EAE2D1D6",
+    "fill": "#E4DAC8",
     "ink": "#2B2B2B",
     "sec": "#5A5A5A",
     "ter": "#8C857B",
@@ -11,8 +13,16 @@
     "accent": "#B5442E",
     "accent2": "#2F4F4F",
     "seal": "#B5442E",
+    "navActive": "#B5442E",
+    "island": "#1E1E1E",
     "paper": "#F7F3E9",
-    "readerInk": "#222222"
+    "readerInk": "#222222",
+    "hlBlueBg": "#DDE7E4",
+    "hlBlue": "#2F4F4F",
+    "hlRedBg": "#F2D9D4",
+    "hlRed": "#B5442E",
+    "hlOrangeBg": "#F0E1CD",
+    "hlOrange": "#A65B20"
   },
   "nav": {
     "style": "ink"

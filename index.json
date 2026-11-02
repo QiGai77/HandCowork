@@ -28,10 +28,10 @@
       ],
       "apiVersion": 1,
       "minApp": "0.0.7.8",
-      "sha256": "846981a1e973ee7398e4ee9870447d2fb78d7c00f01e9d643fb571538effea2a",
-      "size": 1200,
+      "sha256": "7f82fe123c0826dc082df547c66eaf035896c3727af3734b3f26171470a543e1",
+      "size": 1292,
       "path": "packages/theme-moyun-jiangnan.xzplugin",
-      "summary": "古雅水墨江南主题：宣纸底色、焦墨排版、毛笔墨迹进度条、朱砂印章按键与水墨晕染开屏动画。",
+      "summary": "古雅水墨江南主题：宣纸底色、焦墨排版、写意远山、江南水波、毛笔墨迹进度条、朱砂印章按键与水墨晕染开屏动画。",
       "author": "课堂学长"
     },
     {
