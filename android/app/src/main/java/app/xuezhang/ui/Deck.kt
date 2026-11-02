@@ -219,9 +219,41 @@ fun CardDeck(l: Lecture, full: Boolean = false) {
     var flipped by remember(l.id, idx) { mutableStateOf(false) }
     val flip by animateFloatAsState(if (flipped) 180f else 0f, spring(0.72f, 240f), label = "flip")
     val drag = (dx.value / 600f).coerceIn(-1f, 1f) // <0 忘了，>0 记得
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    fun copySprintCram() {
+        val course = Store.course(l.courseId)?.name ?: "课程"
+        val sb = StringBuilder()
+        sb.appendLine("## 🎓 ${course} · 《${l.title}》期末考前速记冲刺本")
+        sb.appendLine("> 依据艾宾浩斯记忆流自动萃取必考定义与核心公式\n")
+        var count = 0
+        l.cards.forEachIndexed { i, c ->
+            count++
+            sb.appendLine("### 【考点 ${i + 1}】${c.tag.ifBlank { "必考概念" }}")
+            sb.appendLine("**问**：${c.q}")
+            sb.appendLine("**答**：${c.a}\n")
+        }
+        val text = sb.toString()
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+        cm?.setPrimaryClip(android.content.ClipData.newPlainText("考前冲刺本", text))
+        Island.show("已生成并复制 $count 个考点速记冲刺本！", Island.Kind.Done)
+    }
+
     fun judge(level: Int) = scope.launch {
         if (idx >= total) return@launch
-        l.cards[idx].level = level; Store.save()
+        val card = l.cards[idx]
+        card.level = level
+        val now = System.currentTimeMillis()
+        if (level == 0) {
+            card.reps = 0
+            card.nextReviewAt = now + app.xuezhang.data.Ebbinghaus.nextIntervalMs(0, 0)
+        } else if (level == 1) {
+            card.reps = maxOf(1, card.reps)
+            card.nextReviewAt = now + app.xuezhang.data.Ebbinghaus.nextIntervalMs(card.reps, 1)
+        } else {
+            card.nextReviewAt = now + app.xuezhang.data.Ebbinghaus.nextIntervalMs(card.reps, 2)
+            card.reps += 1
+        }
+        Store.save()
         dx.animateTo(when (level) { 2 -> 1400f; 0 -> -1400f; else -> 0f }, spring(1f, 220f))
         idx += 1
     }
@@ -301,16 +333,25 @@ fun CardDeck(l: Lecture, full: Boolean = false) {
     }
     if (idx < total) {
         Spacer(Modifier.height(if (full) 22.dp else 12.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf(Triple("忘了", Forgot, 0), Triple("模糊", Fuzzy, 1), Triple("记得", Remember, 2)).forEach { (t, col, lv) ->
-                GlowButton(t, col, Modifier.weight(1f)) { if (lv == 1) { l.cards[idx].level = 1; Store.save(); idx += 1 } else judge(lv) }
+        val curCard = l.cards.getOrNull(idx)
+        val reps = curCard?.reps ?: 0
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(
+                Triple("忘了 · ${app.xuezhang.data.Ebbinghaus.intervalLabel(reps, 0)}", Forgot, 0),
+                Triple("模糊 · ${app.xuezhang.data.Ebbinghaus.intervalLabel(reps, 1)}", Fuzzy, 1),
+                Triple("记得 · ${app.xuezhang.data.Ebbinghaus.intervalLabel(reps, 2)}", Remember, 2)
+            ).forEach { (t, col, lv) ->
+                GlowButton(t, col, Modifier.weight(1f)) { judge(lv) }
             }
         }
     }
     Spacer(Modifier.height(14.dp))
     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-        BasicText(if (regenerating) "学长出题中…" else "重新出题", Modifier.clip(com.kyant.shapes.Capsule()).background(Color.White.copy(alpha = 0.7f))
-            .clickable(enabled = !regenerating) { regenCards() }.padding(horizontal = 14.dp, vertical = 7.dp), style = T.Btn.copy(fontSize = 13.sp, color = if (regenerating) C.Sec else C.Blue))
+        BasicText(if (regenerating) "出题中…" else "重新出题", Modifier.clip(com.kyant.shapes.Capsule()).background(Color.White.copy(alpha = 0.7f))
+            .clickable(enabled = !regenerating) { regenCards() }.padding(horizontal = 12.dp, vertical = 7.dp), style = T.Btn.copy(fontSize = 12.5.sp, color = if (regenerating) C.Sec else C.Blue))
+        Spacer(Modifier.width(8.dp))
+        BasicText("考前冲刺包", Modifier.clip(com.kyant.shapes.Capsule()).background(Color.White.copy(alpha = 0.7f))
+            .clickable { copySprintCram() }.padding(horizontal = 12.dp, vertical = 7.dp), style = T.Btn.copy(fontSize = 12.5.sp, color = C.Accent))
         Spacer(Modifier.weight(1f))
         Column(Modifier.size(72.dp).shadow(10.dp, com.kyant.shapes.Capsule(), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
             .clip(com.kyant.shapes.Capsule()).background(Color.White.copy(alpha = 0.95f)).clickable { idx = 0 },

@@ -53,7 +53,44 @@ data class Segment(
 )
 
 data class Mnemonic(val title: String, val body: String)
-data class Card(val q: String, val a: String, val tag: String = "考点", var level: Int = 0)
+object Ebbinghaus {
+    fun nextIntervalMs(reps: Int, grade: Int): Long = when (grade) {
+        0 -> 10 * 60 * 1000L               // 10 分钟
+        1 -> 24 * 3600 * 1000L             // 1 天
+        else -> when (reps) {
+            0 -> 24 * 3600 * 1000L         // 1 天
+            1 -> 3 * 24 * 3600 * 1000L     // 3 天
+            2 -> 7 * 24 * 3600 * 1000L     // 7 天
+            3 -> 15 * 24 * 3600 * 1000L    // 15 天
+            4 -> 30 * 24 * 3600 * 1000L    // 30 天
+            else -> 60 * 24 * 3600 * 1000L // 60 天
+        }
+    }
+
+    fun intervalLabel(reps: Int, grade: Int): String = when (grade) {
+        0 -> "10m"
+        1 -> "1d"
+        else -> when (reps) {
+            0 -> "1d"
+            1 -> "3d"
+            2 -> "7d"
+            3 -> "15d"
+            4 -> "30d"
+            else -> "60d"
+        }
+    }
+
+    fun isDue(c: Card, now: Long = System.currentTimeMillis()): Boolean = c.nextReviewAt == 0L || c.nextReviewAt <= now
+}
+
+data class Card(
+    val q: String,
+    val a: String,
+    val tag: String = "考点",
+    var level: Int = 0,
+    var nextReviewAt: Long = 0L,
+    var reps: Int = 0
+)
 data class Node(val label: String, val parent: Int = -1, val detail: String = "")
 
 data class Lecture(
@@ -193,7 +230,7 @@ object Store {
         .put("segs", JSONArray().also { a -> segments.forEach { a.put(it.j()) } }).put("n", notes)
         .put("m", JSONArray().also { a -> mnemonics.forEach { a.put(JSONObject().put("t", it.title).put("b", it.body)) } })
         .put("nodes", JSONArray().also { a -> nodes.forEach { a.put(JSONObject().put("l", it.label).put("p", it.parent).put("d", it.detail)) } })
-        .put("cards", JSONArray().also { a -> cards.forEach { a.put(JSONObject().put("q", it.q).put("a", it.a).put("t", it.tag).put("lv", it.level)) } })
+        .put("cards", JSONArray().also { a -> cards.forEach { a.put(JSONObject().put("q", it.q).put("a", it.a).put("t", it.tag).put("lv", it.level).put("nr", it.nextReviewAt).put("rp", it.reps)) } })
         .put("st", if (status == 0 || status == 1) 3 else status)
         .put("secs", JSONArray().also { a -> sections.forEach { a.put(JSONObject().put("t", it.title).put("p", JSONArray(it.pages)).put("b", it.body).put("at", it.atMs).put("fr", it.frame)) } })
         .put("src", source).put("ly", lying).put("cst", coverStyle).put("cim", coverImg)
@@ -204,7 +241,7 @@ object Store {
             arr("segs").map { it.seg() }, optString("n"),
             arr("m").map { Mnemonic(it.optString("t"), it.optString("b")) },
             arr("nodes").map { Node(it.optString("l"), it.optInt("p", -1), it.optString("d")) },
-            arr("cards").map { Card(it.optString("q"), it.optString("a"), it.optString("t", "考点"), it.optInt("lv")) },
+            arr("cards").map { Card(it.optString("q"), it.optString("a"), it.optString("t", "考点"), it.optInt("lv"), it.optLong("nr", 0L), it.optInt("rp", 0)) },
             optInt("st", 2),
             arr("secs").map { o -> NoteSection(o.optString("t"), o.optJSONArray("p")?.let { p -> (0 until p.length()).map { p.optInt(it) }.filter { it > 0 } } ?: emptyList(), o.optString("b"), o.optLong("at", -1), o.optString("fr")) },
             optString("src"), optBoolean("ly"), optInt("cst", -1), optString("cim"))
