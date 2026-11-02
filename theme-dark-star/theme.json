@@ -1,0 +1,36 @@
+{
+  "name": "暗夜星芒",
+  "forceLight": false,
+  "colors": {
+    "bg": "#0E1014",
+    "card": "#181A22",
+    "glass": "#181A22D0",
+    "fill": "#242834",
+    "ink": "#F0F2F5",
+    "sec": "#969CA8",
+    "ter": "#5E6472",
+    "line": "#262B38",
+    "accent": "#FFD166",
+    "accent2": "#4CC9F0",
+    "seal": "#FFD166",
+    "navActive": "#FFD166",
+    "island": "#14161E",
+    "paper": "#12141A",
+    "readerInk": "#E8EAF0",
+    "hlBlueBg": "#16283C",
+    "hlBlue": "#4CC9F0",
+    "hlRedBg": "#361B22",
+    "hlRed": "#FF6B6B",
+    "hlOrangeBg": "#3A2A1A",
+    "hlOrange": "#FFD166"
+  },
+  "nav": {
+    "style": "ink"
+  },
+  "button": {
+    "style": "seal"
+  },
+  "progress": {
+    "style": "brush"
+  }
+}

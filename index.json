@@ -48,6 +48,38 @@
       "path": "packages/provider-universal-hub.xzplugin",
       "summary": "一键导入任意第三方大模型或中转服务（DeepSeek、Kimi、硅基流动、智谱GLM、通义千问、Ollama、One-API、New-API）。",
       "author": "课堂学长"
+    },
+    {
+      "id": "skill-stem-formula",
+      "name": "理工科学长 · 公式与代码强化",
+      "version": "1.0.0",
+      "types": [
+        "skills",
+        "prompts"
+      ],
+      "apiVersion": 1,
+      "minApp": "0.0.7.8",
+      "sha256": "524ddfcd16cf71ab4ebef7fee5bdaec66a319b1feb99623bd3875cdaf1d4d897",
+      "size": 1327,
+      "path": "packages/skill-stem-formula.xzplugin",
+      "summary": "专为高等数学、大学物理、线性代数与计科专业特调：自动纠正口语板书公式，优化 LaTeX 矩阵与积分排版，代码语法等宽高亮。",
+      "author": "QiGai77"
+    },
+    {
+      "id": "theme-dark-star",
+      "name": "暗夜星芒",
+      "version": "1.0.0",
+      "types": [
+        "theme",
+        "splash"
+      ],
+      "apiVersion": 1,
+      "minApp": "0.0.7.8",
+      "sha256": "50a3384b99620d3b9e04292202aad5454c1fe700ecf7b804983a0f338540a323",
+      "size": 1079,
+      "path": "packages/theme-dark-star.xzplugin",
+      "summary": "OLED 纯黑极夜与星芒鎏金：极夜黑底、流星微光、鎏金印章、荧光微蓝高亮，夜间与阶梯教室护眼省电利器。",
+      "author": "QiGai77"
     }
   ]
 }

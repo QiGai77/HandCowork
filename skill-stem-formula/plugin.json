@@ -1,0 +1,18 @@
+{
+  "id": "skill-stem-formula",
+  "name": "理工科学长 · 公式与代码强化",
+  "version": "1.0.0",
+  "author": "QiGai77",
+  "description": "专为高等数学、大学物理、线性代数与计科专业特调：自动纠正口语板书公式，优化 LaTeX 矩阵与积分排版，代码语法等宽高亮。",
+  "types": [
+    "skills",
+    "prompts"
+  ],
+  "apiVersion": 1,
+  "minApp": "0.0.7.8",
+  "entries": {
+    "skills": "skills/stem.json",
+    "prompts": "prompts/stem.md"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "theme-dark-star",
+  "name": "暗夜星芒",
+  "version": "1.0.0",
+  "author": "QiGai77",
+  "description": "OLED 纯黑极夜与星芒鎏金：极夜黑底、流星微光、鎏金印章、荧光微蓝高亮，夜间与阶梯教室护眼省电利器。",
+  "types": [
+    "theme",
+    "splash"
+  ],
+  "apiVersion": 1,
+  "minApp": "0.0.7.8",
+  "entries": {
+    "theme": "theme.json",
+    "splash": "splash.json"
+  },
+  "license": "OFL-1.1 & CC0"
+}

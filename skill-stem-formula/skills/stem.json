@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "pattern": "西格玛",
+      "replace": "\\sum"
+    },
+    {
+      "pattern": "偏导数",
+      "replace": "\\partial"
+    },
+    {
+      "pattern": "阿尔法",
+      "replace": "\\alpha"
+    },
+    {
+      "pattern": "贝塔",
+      "replace": "\\beta"
+    },
+    {
+      "pattern": "德尔塔",
+      "replace": "\\Delta"
+    },
+    {
+      "pattern": "拉普拉斯",
+      "replace": "\\mathcal{L}"
+    },
+    {
+      "pattern": "傅里叶",
+      "replace": "\\mathcal{F}"
+    }
+  ]
+}
