@@ -570,6 +570,7 @@ fun AdvancedScreen() {
 @Composable
 fun AccountsScreen() {
     val s = Store.settings.value
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var ghToken by remember { mutableStateOf("") }
     var giteeToken by remember { mutableStateOf("") }
@@ -593,7 +594,7 @@ fun AccountsScreen() {
                     }
                 }
                 Store.updateSettings(Store.settings.value.copy(ghToken = ghToken.trim(), ghUser = login))
-                ghToken = ""; Island.show("已连接 GitHub · $login", Island.Kind.Done)
+                ghToken = ""; app.xuezhang.engine.GhBackup.schedule(ctx); Island.show("已连接 GitHub · $login，可以备份了", Island.Kind.Done)
             } catch (e: Exception) { msgGh = e.message ?: "连接失败" } finally { busyGh = false }
         }
     }
@@ -682,16 +683,17 @@ fun AccountsScreen() {
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             BasicText("GitHub", style = T.Label.copy(fontSize = 16.5.sp, fontWeight = FontWeight.Medium))
-                            BasicText(if (s.ghUser.isNotBlank()) "已连接 · @${s.ghUser}" else "未连接 · 用于把笔记备份到仓库", style = T.Sub)
+                            BasicText(if (s.ghUser.isNotBlank()) "已连接 · @${s.ghUser}" else "未连接 · 用于把笔记备份到私有仓库", style = T.Sub)
                         }
                         if (s.ghUser.isNotBlank()) BasicText("断开", Modifier.clip(Capsule()).background(C.Red.copy(alpha = 0.1f))
-                            .clickable { Store.updateSettings(Store.settings.value.copy(ghToken = "", ghUser = "")); Island.show("已断开 GitHub", Island.Kind.Info) }
+                            .clickable { Store.updateSettings(Store.settings.value.copy(ghToken = "", ghUser = "")); app.xuezhang.engine.GhBackup.schedule(ctx); Island.show("已断开 GitHub", Island.Kind.Info) }
                             .padding(horizontal = 18.dp, vertical = 9.dp), style = T.Btn.copy(color = C.Red))
                     }
+                    if (s.ghUser.isNotBlank()) { MeLine(); GhBackupInline() }
                     if (s.ghUser.isBlank()) {
                         MeLine()
                         Column(Modifier.padding(20.dp)) {
-                            BasicText("在 GitHub → Settings → Developer settings → Personal access tokens 生成令牌后粘贴到这里", style = T.Cap.copy(lineHeight = 17.sp))
+                            BasicText("在 GitHub → Settings → Developer settings → Personal access tokens 生成令牌后粘贴到这里。备份需要 repo 权限（细粒度令牌：Contents 与 Administration 读写）", style = T.Cap.copy(lineHeight = 17.sp))
                             Spacer(Modifier.height(10.dp))
                             Field(ghToken, { ghToken = it }, "ghp_… 或 github_pat_…", Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.Fill).padding(14.dp), mask = true)
                             Spacer(Modifier.height(10.dp))

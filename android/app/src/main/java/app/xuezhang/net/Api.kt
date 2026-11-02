@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-class ApiException(msg: String) : Exception(msg)
+open class ApiException(msg: String) : Exception(msg)
 
 object Api {
     val http: OkHttpClient = OkHttpClient.Builder()

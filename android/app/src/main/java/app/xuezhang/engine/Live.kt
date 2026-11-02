@@ -326,6 +326,7 @@ object Live {
             genPct.floatValue = 1f; genDetail.value = "完成"
             Log.ok("整理笔记", "完成 · ${done.sections.size} 节 · ${done.cards.size} 张卡")
             AiProgress.finish(job, true, "笔记生成好了")
+            GhBackup.afterNote()
             // OpenAI / ChatGPT：笔记好了自动用 gpt-image-2.5-flare 画 AI 导图（后台，不阻塞）
             if (Api.isGpt() && done.nodes.isNotEmpty() && autoMindMap) scope.launch { runCatching { MindMap.generate(id) } }
         } catch (e: Exception) {

@@ -19,6 +19,8 @@ class MainActivity : ComponentActivity() {
         JLatexMathAndroid.init(applicationContext)
         app.xuezhang.net.Auth.init(applicationContext)
         Store.init(applicationContext)
+        app.xuezhang.engine.GhBackup.appCtx = applicationContext
+        runCatching { app.xuezhang.engine.GhBackup.schedule(applicationContext) }
         if (Live.running.value && Nav.stack.lastOrNull() != Route.Live) Nav.push(Route.Live)
         setContent { App() }
     }

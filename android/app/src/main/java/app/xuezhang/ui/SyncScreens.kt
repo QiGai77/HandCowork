@@ -107,6 +107,20 @@ fun SyncSheetContent() {
             }
             Icon("chev", C.Ter, 14.dp)
         }
+        Spacer(Modifier.height(10.dp))
+        // GitHub 私有仓库备份（连接账户里连上 GitHub 后可用）
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Color.White).border(0.5.dp, Color(0x14000000), RoundedCornerShape(20.dp))
+            .clickable { Nav.sheet.value = null; Nav.push(if (s.ghUser.isNotBlank()) Route.GhBackup else Route.Accounts) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(36.dp).clip(Capsule()).background(Color(0xFF1F2328)), contentAlignment = Alignment.Center) { Icon("github", Color.White, 18.dp) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                BasicText(if (s.ghUser.isBlank()) "连接 GitHub 备份" else "GitHub 备份", style = T.Btn)
+                BasicText(if (s.ghUser.isBlank()) "备份到你自己的私有仓库，只传有变化的文件" else "@${s.ghUser}/${app.xuezhang.engine.GhBackupCore.cleanRepo(s.ghRepo)} · " +
+                    (if (s.ghLastBackup > 0) "上次 " + java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(s.ghLastBackup)) else "还没备份过"),
+                    style = T.Cap.copy(fontSize = 11.5.sp), maxLines = 1)
+            }
+            Icon("chev", C.Ter, 14.dp)
+        }
         Spacer(Modifier.height(14.dp))
         BasicText("系统文件选择器（Google 云端硬盘 App、手机自带云盘等）", style = T.Sub)
         Spacer(Modifier.height(6.dp))
