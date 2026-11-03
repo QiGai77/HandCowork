@@ -8,7 +8,7 @@
 
 录音实时转写，AI 学长按课件逐页讲解，图表能拖，题目能做。
 
-![version](https://img.shields.io/badge/version-0.0.7.9-0A84FF)
+![version](https://img.shields.io/badge/version-0.0.8.0-0A84FF)
 ![android](https://img.shields.io/badge/Android-8.0%2B-34C759)
 ![compose](https://img.shields.io/badge/Jetpack-Compose-4285F4)
 ![status](https://img.shields.io/badge/状态-测试版-FF9500)
@@ -29,7 +29,23 @@
 | **备份** | 本地一键云备份（`Documents/课堂学长备份`）、Google Drive（原生 4 色标志）、Gitee 远程更新、GitHub 备份 |
 | **分享** | 笔记导出 DOCX、PDF、Markdown 或长图 |
 
-## v0.0.7.9 迭代与新功能设计
+## v0.0.8.0 更新：两个转写插件重做
+
+这一版只动「识别优化与考点萃取」和「理工科学长」两个插件（插件市场 2.0.0，需 App 0.0.8.0+）。App 核心只加了通用插件钩子和断网重试修复；**插件关闭时上课页和 v0.0.7.9 一样**。
+
+- **识别优化与考点萃取 2.0.0**
+  - 按说话停顿切段（`capture.vad`，单段 3–30 秒），不再按固定秒数把句子切断。
+  - 原声视图一句一行，左侧时间，同一话题成段；卡片头显示起止时间、提问 / 考点标签和老师名；老师提问句淡蓝底（`transcript.split` + `voice.render=sentences`）。
+  - 热词纠错（`transcript.hotwords`）：课程热词 + 课件标题 / 公式自动提取 + 插件词表；拼音模糊匹配（zh/z、n/l、ang/an…）和型号编辑距离（82555 → 8255），AO → A口 这类写法走词表别名。改过的词蓝色虚线下划线，上标「原:xx」，点一下还原。
+  - 学长视图改成对话气泡（`senior.render=bubbles`）：「学」精炼稿（原文 40–60%，头部 时间 · 页码 · 原文 xx%）、「学」彩色要点（考点 / 结论 / 定义 / 公式 / 提问 / 例题）、「问」老师提问 + 答案、「结」本页小结（翻页时汇总上一页）。强度：轻 = 只清洗分句；中 = + 精炼稿与提问；强 = + 要点与本页小结。
+- **理工科学长 2.0.0**：芯片 / 寄存器 / 引脚名词表（8255、8253、8259、8251、INTE、IBF、OBF、STB、ACK、INTR、CS、A0/A1、PC6/PC7、A口/B口/C口…）参与纠错；实时整理提示词追加「口述公式转 LaTeX、口述代码整理成代码块」。修复：只带词表的插件不再抢占识别优化的文本管线。
+- **断网不丢段（核心 bug 修复）**：转写或大模型失败的段落进本地队列，按 1s / 3s / 10s 退避重试，上课页显示虚线占位卡「⟳ 网络断了，这段稍后补上」，不再显示 connection closed。
+- **插件框架新增的通用钩子**：规则步骤 `split` / `hotwords` / `lexicon` / `spacing`；`hooks`（`capture.vad`、`segment.refine`、`voice.render`、`senior.render`、`page.summary`）；提示词追加（`llm` 里 `"segment+"`）；`Segment.ext` 存插件数据，旧课没有它照常显示。
+- **没做的**：「▶ 回听」——App 目前不保存上课录音（分段识别完即删除），没有可复用的按时间戳跳播能力，所以提问气泡里没放这个按钮。VAD 用的是能量 + 过零率的轻量实现，没有上 sherpa-onnx Silero VAD：插件按设计只能是声明式资源包（不允许 .so），而 sherpa-onnx 需要随 App 打包每个 ABI 数 MB 的原生库，等于改核心。
+
+**借鉴的开源项目（代码注释里标了落点）**：[WhisperX](https://github.com/m-bain/whisperX)（BSD-2，按时间戳重切句 → 句子时间估算）、[FunASR](https://github.com/modelscope/FunASR)（MIT，VAD + 标点 + 时间戳流水线、ct-punc 分句）、[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)（Apache-2.0，按停顿切段）、[CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline)（MIT，拼音模糊热词替换、中英文间距）、[wtpsplit](https://github.com/segment-any-text/wtpsplit)（MIT，长句切分规则）；拼音表由 [pypinyin](https://github.com/mozillazg/python-pinyin)（MIT）生成；精炼提示词的口语 → 书面示例参考 FormalASR 的样本思路。
+
+## v0.0.7.9 更新
 
 - **版本升级**：升级版本号至 v0.0.7.9（versionCode 17），运行时兼容性矩阵平滑演进。
 - **智能复习「艾宾浩斯记忆流」与期末考点冲刺包**：基于遗忘曲线智能编排每日复习卡，一键汇聚全课考点标签生成考前冲刺手册，支持长图/Markdown导出。
@@ -46,8 +62,3 @@
   - **墨韵江南**：宣纸纹理微底色、焦墨排版、霞鹜文楷书法字体、毛笔墨痕进度条、朱砂印章按钮与水墨晕染开屏动画；
   - **供应商兼容**：支持导入任意 OpenAI 兼容、Anthropic、Gemini 协议接口与本地自建 Ollama；API Key 本地硬件 Keystore 加密隔离，绝不随插件与备份导出。
 - **去中心化插件市场**：支持通过仓库 plugins 独立分支或 Gitee 镜像免服务器订阅与安装插件。
-
-## v0.0.7.7 更新
-
-- **GitHub 备份与恢复**：在「连接账户」连上 GitHub 后，GitHub 卡片里直接出现「立即备份 / 备份与恢复 / 自动备份」；「云同步」里新增 GitHub 备份入口与独立页面。备份提交到你自己的**私有仓库**（默认 `xuezhang-backup`，不存在会自动创建，名字可改），内容包括课程与课表、每节笔记、复习卡、概念图、自定义提示词与偏好，以及封面、课件、截图、AI 生成图、头像；录音默认不备份（「包含录音」开关），超过 50MB 的文件跳过。用 Git Data API 一次提交多文件，本地先算 git blob SHA，只上传有变化的文件，内容没变就不产生新提交。进度显示在灵动岛和页面进度卡。「自动备份」：每天在 Wi‑Fi 下备份一次，并在每次笔记生成后（Wi‑Fi）备份。「从备份恢复」列出历次备份提交，确认后与本机合并（同 id 以备份为准），Key / 令牌 / 账号不变。令牌只放在请求头里，**绝不写进备份**（设置白名单 + 最后一道防线抹除）。401 / 403 等错误会以中文写进「日志」（令牌失效请重新连接；缺 repo 权限会说明需要的权限）。
-- **精装封面重绘（v2）**：10 款封面保留原有配色与徽章图标（课程 → 封面分配不变），改成多段渐变布面 + 暗角 + 徽章背后的柔光，每款加上学科插画暗纹（芯片走线、多层正弦波、积分曲线与面积、原子轨道与粒子、经纬线与地形等高线、羽毛笔花体、叶脉植物、蓝图齿轮、六元环分子晶格、代码字符雨），布纹、烫金双框与花饰角、带珠圈与高光的圆形烫金徽章、斜向光泽、丝质书签带；标题区保持安静并加了淡淡的暗底，烫金课程名更清楚。书脊带同款暗纹。

@@ -12,8 +12,8 @@ android {
         applicationId = "app.xuezhang"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.0.7.9"
+        versionCode = 18
+        versionName = "0.0.8.0"
         // Google Drive 云同步用�?OAuth 客户端（「桌面应用」类型）。也可以�?App 里「我�?�?云同�?�?Google Drive」填写�?
         // 编译时传入：./gradlew assembleRelease -PgoogleClientId=xxx.apps.googleusercontent.com -PgoogleClientSecret=GOCSPX-xxx
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (project.findProperty("googleClientId")?.toString() ?: "") + "\"")
@@ -83,7 +83,7 @@ dependencies {
 
 // 截图测试（Robolectric 原生渲染）只�?-Pshots=true 时跑�?/gradlew testDebugUnitTest -Pshots=true --tests '*V0076ShotsTest*'
 tasks.withType<Test>().configureEach {
-    if (!project.hasProperty("shots")) { exclude("**/V0076ShotsTest*"); exclude("**/V0077ShotsTest*"); exclude("**/V0078ShotsTest*") }
+    if (!project.hasProperty("shots")) { exclude("**/V0076ShotsTest*"); exclude("**/V0077ShotsTest*"); exclude("**/V0078ShotsTest*"); exclude("**/V0080ShotsTest*") }
     (project.findProperty("testJava") as String?)?.let { executable = it }
 }
 

@@ -50,6 +50,8 @@ data class Segment(
     val exam: Boolean = false,
     val pending: Boolean = false,
     val offTopic: Boolean = false, // 与课程无关的闲聊：学长模式跳过，原声模式淡化折叠
+    /** v0.0.8.0 插件扩展数据（JSON，由转写插件写入：分句、精炼稿、要点…）。空 = 旧格式。 */
+    val ext: String = "",
 )
 
 data class Mnemonic(val title: String, val body: String)
@@ -222,9 +224,9 @@ object Store {
         optString("weeks"), optString("cover"), optString("sp"), optString("src"))
 
     private fun Segment.j() = JSONObject().put("id", id).put("s", startMs).put("p", page).put("r", raw).put("v", voice)
-        .put("x", senior).put("f", fillers).put("rp", repeats).put("e", exam).put("ot", offTopic)
+        .put("x", senior).put("f", fillers).put("rp", repeats).put("e", exam).put("ot", offTopic).apply { if (ext.isNotEmpty()) put("xt", ext) }
     private fun JSONObject.seg() = Segment(optString("id"), optLong("s"), optInt("p"), optString("r"), optString("v"),
-        optString("x"), optInt("f"), optInt("rp"), optBoolean("e"), offTopic = optBoolean("ot"))
+        optString("x"), optInt("f"), optInt("rp"), optBoolean("e"), offTopic = optBoolean("ot"), ext = optString("xt"))
 
     private fun Lecture.j() = JSONObject().put("id", id).put("c", courseId).put("t", title).put("d", date).put("du", durationMs)
         .put("segs", JSONArray().also { a -> segments.forEach { a.put(it.j()) } }).put("n", notes)

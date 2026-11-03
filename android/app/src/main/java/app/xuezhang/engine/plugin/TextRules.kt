@@ -27,6 +27,8 @@ object TextRules {
         val corrections: Int = 0,
         val dropped: List<String> = emptyList(),
         val marks: Map<String, List<String>> = emptyMap(),
+        /** v0.0.8.0 split 步骤的分句结果（没有 split 步骤时为空）。 */
+        val sentences: List<String> = emptyList(),
     ) {
         val exam get() = marks["exam"].orEmpty()
     }
@@ -41,8 +43,24 @@ object TextRules {
     data class Replace(override val level: Int, val pattern: Regex, val with: String) : Step
     data class Mark(override val level: Int, val tag: String, val patterns: List<Regex>) : Step
     data class Tidy(override val level: Int = 1) : Step
+    /** v0.0.8.0 钩子 transcript.split：分句（见 [Splitter]）。 */
+    data class Split(override val level: Int, val breakers: String = "。？！；?!;", val soft: String = "，,、", val maxLen: Int = 60, val minLen: Int = 6) : Step
+    /** v0.0.8.0 钩子 transcript.hotwords：热词纠错（见 [Hotwords]）。sources: course / slides / lexicon。 */
+    data class HotwordsStep(override val level: Int, val sources: List<String>, val pinyin: String = "", val fuzzy: List<String> = Hotwords.Fuzzy.DEFAULT, val maxEdit: Int = 1) : Step
+    /** v0.0.8.0 中英文之间加空格（CapsWriter-Offline 的排版整理思路，MIT）；不碰 [h:] 标记和公式。 */
+    data class Spacing(override val level: Int) : Step
+    /** v0.0.8.0 插件词表（芯片、寄存器、引脚名…），本身不改文本，交给 hotwords 步骤用。 */
+    data class Lexicon(override val level: Int, val terms: List<Hotwords.Term>) : Step
 
-    data class Program(val steps: List<Step>, val llm: Map<String, String> = emptyMap())
+    /** 运行时上下文：热词与拼音表（由插件注册表和上课页提供；为空时 hotwords 步骤不做事）。 */
+    data class Ctx(val terms: Map<String, List<Hotwords.Term>> = emptyMap(), val pinyin: Hotwords.Pinyin? = null)
+
+    /** hooks：v0.0.8.0 插件通用钩子配置（capture.vad / voice.render / senior.render / page.summary …），原样保存 JSON。 */
+    data class Program(val steps: List<Step>, val llm: Map<String, String> = emptyMap(), val hooks: JSONObject = JSONObject()) {
+        val lexicon: List<Hotwords.Term> get() = steps.filterIsInstance<Lexicon>().flatMap { it.terms }
+        /** 有没有真正改文本的步骤（只有词表的插件不算文本管线）。 */
+        val isPipeline: Boolean get() = steps.any { it !is Lexicon }
+    }
 
     private const val MAX_PATTERN = 400
     private fun rx(s: String): Regex {
@@ -68,20 +86,31 @@ object TextRules {
                 "replace" -> Replace(lv, rx(s.optString("pattern")), s.optString("with"))
                 "mark" -> Mark(lv, s.optString("tag", "exam"), pats())
                 "tidy" -> Tidy(lv)
+                "spacing" -> Spacing(lv)
+                "split" -> Split(lv, s.optString("breakers", "。？！；?!;"), s.optString("soft", "，,、"), s.optInt("maxLen", 60).coerceIn(10, 300), s.optInt("minLen", 6).coerceIn(0, 30))
+                "hotwords" -> HotwordsStep(lv, s.optJSONArray("sources")?.strings() ?: listOf("course", "slides", "lexicon"), s.optString("pinyin"),
+                    s.optJSONArray("fuzzy")?.strings() ?: Hotwords.Fuzzy.DEFAULT, s.optInt("maxEdit", 1).coerceIn(0, 2))
+                "lexicon" -> Lexicon(lv, s.optJSONArray("terms")?.let { a -> (0 until a.length()).mapNotNull { i ->
+                    when (val x = a.opt(i)) {
+                        is String -> Hotwords.Term(x)
+                        is JSONObject -> x.optString("term").takeIf { it.isNotBlank() }?.let { Hotwords.Term(it, x.optJSONArray("alias")?.strings().orEmpty()) }
+                        else -> null
+                    } } }.orEmpty())
                 else -> null // 未知步骤：忽略（向前兼容）
             }
         }
         val llm = o.optJSONObject("llm")?.let { l -> l.keys().asSequence().associateWith { l.optString(it) } }.orEmpty()
-        return Program(steps, llm)
+        return Program(steps, llm, o.optJSONObject("hooks") ?: JSONObject())
     }
 
     private const val B = "，。！？、；：,.!?;:\\s"
     private fun alt(ws: List<String>) = ws.joinToString("|") { Regex.escape(it) }
 
-    fun run(p: Program, input: String, level: Int): Result {
+    fun run(p: Program, input: String, level: Int, ctx: Ctx = Ctx()): Result {
         var t = input.replace('\n', '。').trim()
         var fillers = 0; var repeats = 0; var corr = 0
         val dropped = mutableListOf<String>(); val marks = linkedMapOf<String, MutableList<String>>()
+        var sents = emptyList<String>()
         for (st in p.steps) {
             if (st.level > level) continue
             when (st) {
@@ -135,9 +164,22 @@ object TextRules {
                 is Replace -> t = st.pattern.replace(t, st.with)
                 is Mark -> sentences(t).forEach { s -> if (st.patterns.any { it.containsMatchIn(s) }) marks.getOrPut(st.tag) { mutableListOf() }.add(s.trim()) }
                 is Tidy -> t = tidy(t)
+                is Lexicon -> {}
+                is Spacing -> t = Hotwords.mapFree(t) { seg ->
+                    seg.replace(Regex("(?<=[\\u4e00-\\u9fff])(?=[A-Za-z0-9])"), " ").replace(Regex("(?<=[A-Za-z0-9])(?=[\\u4e00-\\u9fff])"), " ")
+                }
+                is HotwordsStep -> {
+                    val terms = st.sources.flatMap { ctx.terms[it].orEmpty() }
+                    if (terms.isNotEmpty()) t = Hotwords.correct(t, terms, ctx.pinyin, Hotwords.Fuzzy(st.fuzzy), st.maxEdit)
+                }
+                is Split -> sents = Splitter.split(tidy(t), st.breakers, st.soft, st.maxLen, st.minLen)
             }
         }
-        return Result(tidy(t), fillers, repeats, corr, dropped, marks)
+        val out = tidy(t)
+        // 分句之后若还有步骤改了文本，以最终文本重新分一次，保证两者一致
+        val split = p.steps.lastOrNull { it is Split && it.level <= level } as Split?
+        if (split != null && sents.joinToString("") != out) sents = Splitter.split(out, split.breakers, split.soft, split.maxLen, split.minLen)
+        return Result(out, fillers, repeats, corr, dropped, marks, sents)
     }
 
     /** 「电压是220伏，不对，是380伏」→「电压是380伏」：用更正部分开头的字在前文里找锚点，替换锚点之后的内容。 */

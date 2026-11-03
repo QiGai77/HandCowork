@@ -18,7 +18,7 @@ object Plugins {
 
     var root: File? = null
         private set
-    var appVersion: String = "0.0.7.9"
+    var appVersion: String = "0.0.8.0"
     val installed = mutableStateListOf<Installed>()
     val state = mutableStateOf(PluginState())
     /** 每次重建注册表 +1，界面据此刷新（主题、封面、提示词、服务商）。 */
@@ -196,27 +196,51 @@ object CoverPackRegistry {
 
 /** 技能 / 提示词：识别优化等文本管线 + 提示词覆盖（用户自定义 > 插件 > 内置）。 */
 object SkillRegistry {
-    data class Refine(val pluginId: String, val program: TextRules.Program, val level: Int, val prompts: Map<String, String>)
+    /**
+     * pinyin：插件带的汉字→拼音表（hotwords 步骤用）；lexicon：所有启用插件的词表合集；
+     * hooks：v0.0.8.0 通用钩子配置（第一个声明的插件生效）。
+     */
+    data class Refine(val pluginId: String, val program: TextRules.Program, val level: Int, val prompts: Map<String, String>,
+                      val pinyin: Hotwords.Pinyin? = null, val lexicon: List<Hotwords.Term> = emptyList(), val hooks: org.json.JSONObject = org.json.JSONObject())
     val refine = mutableStateOf<Refine?>(null)
     /** 插件提供的系统提示词覆盖：键同 Prompts.catalog（segment / notes0 / notes1 …）。 */
     val prompts = mutableStateOf<Map<String, String>>(emptyMap())
-    fun clear() { refine.value = null; prompts.value = emptyMap() }
+    /** v0.0.8.0 提示词追加：规则 llm 里写 "segment+": "prompts/x.md"，内容追加到该提示词末尾（多个插件依次追加）。 */
+    val appends = mutableStateOf<Map<String, String>>(emptyMap())
+    fun clear() { refine.value = null; prompts.value = emptyMap(); appends.value = emptyMap() }
     fun load(on: List<Plugins.Installed>) {
         clear()
         val pm = LinkedHashMap<String, String>()
+        val ap = LinkedHashMap<String, String>()
+        val lex = mutableListOf<Hotwords.Term>()
+        data class P(val inst: Plugins.Installed, val prog: TextRules.Program, val prompts: Map<String, String>, val pinyin: Hotwords.Pinyin?)
+        val progs = mutableListOf<P>()
         on.filter { "skills" in it.m.types || "prompts" in it.m.types }.forEach { p ->
             p.m.entries.filterKeys { it.startsWith("prompt.") }.forEach { (k, v) -> p.file(v)?.let { pm[k.removePrefix("prompt.")] = it.readText() } }
             val sk = p.m.entries["skills"]?.let { p.file(it) } ?: return@forEach
             val prog = TextRules.parse(sk.readText())
-            val lv = TextRules.level(Plugins.setting(p.m.id, "strength"))
-            val prompts = prog.llm.mapNotNull { (k, v) -> p.file(v)?.let { k to it.readText() } }.toMap()
-            if (refine.value == null) refine.value = Refine(p.m.id, prog, lv, prompts)
+            val prompts = prog.llm.filterKeys { !it.endsWith("+") }.mapNotNull { (k, v) -> p.file(v)?.let { k to it.readText() } }.toMap()
+            prog.llm.filterKeys { it.endsWith("+") }.forEach { (k, v) -> p.file(v)?.let { f -> val key = k.removeSuffix("+"); ap[key] = (ap[key]?.let { it + "\n\n" } ?: "") + f.readText() } }
+            lex += prog.lexicon
+            val py = prog.steps.filterIsInstance<TextRules.HotwordsStep>().firstOrNull()?.pinyin?.let { p.file(it) }?.let { runCatching { Hotwords.Pinyin.parse(it.readText()) }.getOrNull() }
+            progs += P(p, prog, prompts, py)
+        }
+        // 文本管线：取第一个真正改文本的插件（只带词表的插件如「理工科学长」不再抢占识别优化，v0.0.8.0 修复）
+        val primary = progs.firstOrNull { it.prog.isPipeline && it.prog.hooks.length() > 0 } ?: progs.firstOrNull { it.prog.isPipeline }
+        if (primary != null) {
+            val setting = primary.inst.m.settings.firstOrNull { it.key == "strength" || it.key == "level" }?.key ?: "strength"
+            val lv = TextRules.level(Plugins.setting(primary.inst.m.id, setting))
+            val hooks = progs.firstOrNull { it.prog.hooks.length() > 0 }?.prog?.hooks ?: org.json.JSONObject()
+            refine.value = Refine(primary.inst.m.id, primary.prog, lv, primary.prompts, progs.firstNotNullOfOrNull { it.pinyin }, lex.distinctBy { it.term }, hooks)
         }
         prompts.value = pm
+        appends.value = ap
     }
 
+    fun append(key: String): String = appends.value[key]?.takeIf { it.isNotBlank() }?.let { "\n\n$it" } ?: ""
+
     /** 确定性清洗（无网络）。没有启用识别优化插件时原样返回。 */
-    fun clean(raw: String): TextRules.Result? = refine.value?.let { TextRules.run(it.program, raw, it.level) }
+    fun clean(raw: String, ctx: TextRules.Ctx = TextRules.Ctx()): TextRules.Result? = refine.value?.let { TextRules.run(it.program, raw, it.level, ctx) }
 }
 
 /** 服务商：插件预设 + 用户导入/自建的配置（存 plugins/providers.json，不含 Key）。 */

@@ -28,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -96,7 +97,7 @@ object Live {
 
     private var course: Course? = null
     private var appCtx: Context? = null
-    private var chunks = Channel<Pair<File, Long>>(Channel.UNLIMITED)
+    private var chunks = Channel<Triple<File, Long, Long>>(Channel.UNLIMITED)
     private var markNext = false
 
     fun start(ctx: Context, c: Course) {
@@ -152,6 +153,8 @@ object Live {
         val pcm = ByteArrayOutputStream()
         var chunkStart = 0L
         var silentMs = 0L
+        // v0.0.8.0 插件钩子 capture.vad：启用了声明它的插件时按说话停顿切段；否则照旧按 chunkSec
+        val vad = app.xuezhang.engine.plugin.TranscriptHooks.vad()
         try {
             rec.startRecording()
             while (running.value) {
@@ -165,6 +168,13 @@ object Live {
                 levels.removeAt(0); levels.add(lv)
                 for (i in 0 until n) { pcm.write(buf[i].toInt() and 0xff); pcm.write((buf[i].toInt() shr 8) and 0xff) }
                 elapsed.longValue += n * 1000L / RATE
+                if (vad != null) {
+                    if (vad.feed(buf, n, RATE)) {
+                        if (vad.hasSpeech()) flush(pcm, chunkStart) else pcm.reset()
+                        chunkStart = elapsed.longValue; vad.reset()
+                    }
+                    continue
+                }
                 silentMs = if (rms < 350) silentMs + n * 1000L / RATE else 0
                 val len = pcm.size() / 2 * 1000L / RATE
                 val target = Store.settings.value.chunkSec * 1000L
@@ -176,7 +186,7 @@ object Live {
             error.value = "录音失败：${e.message}"
         } finally {
             runCatching { rec.stop() }; rec.release()
-            if (pcm.size() > RATE) flush(pcm, chunkStart)
+            if (pcm.size() > RATE && (vad == null || vad.hasSpeech())) flush(pcm, chunkStart)
             chunks.close()
         }
     }
@@ -186,7 +196,7 @@ object Live {
         val f = File(dir, "c_${System.currentTimeMillis()}.wav")
         writeWav(f, pcm.toByteArray()); pcm.reset()
         processing.intValue++
-        chunks.trySend(f to startMs)
+        chunks.trySend(Triple(f, startMs, elapsed.longValue))
     }
 
     private fun writeWav(f: File, data: ByteArray) {
@@ -199,25 +209,98 @@ object Live {
     }
 
     // ---------------- processing ----------------
+    /**
+     * v0.0.8.0 断网重试队列（bug 修复）：转写 / 大模型失败的段落不再显示「connection closed」并丢掉，
+     * 而是先放一张虚线占位卡（Segment.pending），录音文件留着，按 1s / 3s / 10s 退避重试，之后每 10s 再试；
+     * 下课后再补最多 3 轮，仍失败才放弃并提示。
+     */
+    private class Job(val f: File, val start: Long, val end: Long) { var tries = 0; var placeholder: String? = null }
+    private val retryQ = Channel<Job>(Channel.UNLIMITED)
+    private val work = kotlinx.coroutines.sync.Mutex()
+    private val BACKOFF = longArrayOf(1_000, 3_000, 10_000)
+    @Volatile private var waiting = 0
+
     private suspend fun consume() {
-        for ((f, start) in chunks) {
-            try { handle(f, start) } catch (e: Exception) {
-                error.value = e.message; Island.show(e.message ?: "处理失败", Island.Kind.Warn)
-            } finally { processing.intValue--; f.delete() }
+        val retryLoop = scope.launch { for (j in retryQ) run(j) }
+        for ((f, start, end) in chunks) run(Job(f, start, end))
+        // 录音结束：等还在排队重试的段落（最多再补 3 轮）
+        var guard = 0
+        while (waiting > 0 && guard++ < 90) delay(1_000)
+        retryLoop.cancel(); waiting = 0; processing.intValue = 0
+        segments.filter { it.pending }.takeIf { it.isNotEmpty() }?.let { left ->
+            segments.removeAll { it.pending }; persist()
+            Island.show("有 ${left.size} 段因网络没能补上", Island.Kind.Warn)
         }
         // recording ended
         finishLecture()
     }
 
-    private fun handle(f: File, start: Long) {
+    private suspend fun run(j: Job) {
+        var retry = false
+        val wasRetrying = j.placeholder != null
+        try {
+            work.withLock { handle(j) }
+        } catch (e: Exception) {
+            j.tries++
+            val net = isNetwork(e)
+            if (running.value || j.tries <= 3 + BACKOFF.size) {
+                retry = true
+                if (j.placeholder == null) {
+                    val ph = Segment(startMs = j.start, pending = true)
+                    j.placeholder = ph.id; segments.add(ph); persist()
+                    Island.show("网络断了，这段稍后补上", Island.Kind.Warn)
+                }
+                val wait = BACKOFF.getOrElse(j.tries - 1) { BACKOFF.last() }
+                if (!wasRetrying) waiting++
+                scope.launch { delay(wait); retryQ.trySend(j) }
+            } else {
+                j.placeholder?.let { id -> segments.removeAll { it.id == id }; persist() }
+                if (!net) { error.value = e.message; Island.show(e.message ?: "处理失败", Island.Kind.Warn) }
+            }
+        } finally {
+            if (!retry) { if (wasRetrying) waiting--; processing.intValue--; j.f.delete() }
+        }
+    }
+
+    private fun isNetwork(e: Throwable): Boolean {
+        var x: Throwable? = e
+        while (x != null) { if (x is java.io.IOException) return true; x = x.cause }
+        return (e.message ?: "").let { m -> listOf("connection", "timeout", "timed out", "unreachable", "reset", "closed", "Unable to resolve").any { m.contains(it, true) } }
+    }
+
+    /** 把这一段放进列表：重试成功时替换占位卡的位置。 */
+    private fun place(j: Job, seg: Segment?) {
+        val ph = j.placeholder
+        val i = if (ph != null) segments.indexOfFirst { it.id == ph } else -1
+        when {
+            seg == null -> if (i >= 0) segments.removeAt(i)
+            i >= 0 -> segments[i] = seg
+            else -> segments.add(seg)
+        }
+        persist()
+    }
+
+    private fun handle(j: Job) {
         val c = course ?: return
         if (discardPending) return
+        val f = j.f; val start = j.start
         val raw = Api.transcribe(f, c.hotwords.joinToString("，"))
-        if (raw.isBlank() || raw.length < 2) return
+        if (raw.isBlank() || raw.length < 2) { place(j, null); return }
+        // v0.0.8.0 插件钩子 segment.refine：识别优化插件接管（分句 / 热词纠错 / 精炼 / 要点）；没启用就走下面原流程
+        if (app.xuezhang.engine.plugin.TranscriptHooks.refineOn()) {
+            val seg = app.xuezhang.engine.plugin.TranscriptHooks.process(c, raw, start, j.end, currentPage.intValue, segments.filterNot { it.pending }, markNext)
+            if (seg != null) {
+                if (seg.page > 0) currentPage.intValue = seg.page
+                markNext = false
+            }
+            place(j, seg)
+            if (seg?.exam == true) Island.show("老师划重点了 · 已记为考点", Island.Kind.Exam)
+            return
+        }
         // v0.0.7.8 识别优化插件：先做确定性清洗（语气词、口吃重复、口误更正、闲聊），再交给大模型精炼
         val cleaned = app.xuezhang.engine.plugin.SkillRegistry.clean(raw)
         val refineOn = cleaned != null
-        val ctxText = segments.takeLast(3).joinToString("\n") { it.voice }
+        val ctxText = segments.filterNot { it.pending }.takeLast(3).joinToString("\n") { it.voice }
         val slides = c.slides.joinToString("\n") { "P.${it.page} ${it.title} ${it.formulas.joinToString(" ")}" }.take(2500)
         val user = buildString {
             append("课程：${c.name}\n热词：${c.hotwords.joinToString("、")}\n")
@@ -228,7 +311,7 @@ object Live {
                 if (cleaned.exam.isNotEmpty()) append("\n老师的考点信号：" + cleaned.exam.joinToString(" / "))
             } else append("\n本段语音识别原文：\n$raw")
         }
-        if (cleaned != null && cleaned.text.isBlank()) return // 整段都是闲聊/语气词
+        if (cleaned != null && cleaned.text.isBlank()) { place(j, null); return } // 整段都是闲聊/语气词
         val o = Api.chatJson(Prompts.get("segment"), user)
         val page = o.optInt("page", 0).let { if (it > 0) it else currentPage.intValue }
         if (page > 0) currentPage.intValue = page
@@ -243,7 +326,7 @@ object Live {
             }, fillers = o.optInt("fillers") + (cleaned?.fillers ?: 0), repeats = o.optInt("repeats") + (cleaned?.repeats ?: 0),
             exam = o.optBoolean("exam") || markNext || (cleaned?.exam?.isNotEmpty() == true), offTopic = Prompts.offTopic(o) && !(o.optBoolean("exam") || markNext))
         markNext = false
-        segments.add(seg); persist()
+        place(j, seg)
         when {
             seg.exam -> Island.show("老师划重点了 · 已记为考点", Island.Kind.Exam)
             fills > 0 && Store.settings.value.confirmFill -> Island.show("补全了 $fills 处没听清的字", Island.Kind.Fill)

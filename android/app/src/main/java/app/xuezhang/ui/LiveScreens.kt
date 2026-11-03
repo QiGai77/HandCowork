@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -267,8 +268,27 @@ fun OffTopicRow(s: Segment) {
     }
 }
 
+/** v0.0.8.0 断网重试：这段还在排队补识别时的虚线占位卡（不再显示 connection closed）。 */
+@Composable
+fun PendingCard(s: Segment) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().drawBehind {
+        drawRoundRect(Color(0x33000000), cornerRadius = androidx.compose.ui.geometry.CornerRadius(20.dp.toPx()),
+            style = Stroke(1.3.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))))
+    }.padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicText(Live.fmt(s.startMs), style = T.Cap.copy(fontSize = 13.sp))
+            Spacer(Modifier.weight(1f))
+            BasicText("⟳ 网络断了，这段稍后补上", style = T.Cap.copy(fontSize = 13.sp, color = C.Orange))
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.fillMaxWidth(0.65f).height(8.dp).clip(Capsule()).background(Color(0x12000000)))
+    }
+}
+
 @Composable
 fun SeniorBubble(s: Segment) {
+    if (s.pending) { PendingCard(s); return }
+    if (pluginSeniorBubbles(s)) return // v0.0.8.0 插件钩子 senior.render=bubbles
     Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)) {
         Box(Modifier.size(34.dp).clip(Capsule()).background(C.Blue.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
             BasicText("学", style = T.Head.copy(fontSize = 15.sp, color = C.Blue))
@@ -283,6 +303,8 @@ fun SeniorBubble(s: Segment) {
 
 @Composable
 fun VoiceCard(s: Segment, teacher: String) {
+    if (s.pending) { PendingCard(s); return }
+    if (pluginVoiceCard(s, teacher)) return // v0.0.8.0 插件钩子 voice.render=sentences
     if (s.offTopic) { OffTopicRow(s); return }
     PlainCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), radius = 20.dp, padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
